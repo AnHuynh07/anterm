@@ -99,13 +99,29 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
     term.loadAddon(new SearchAddon());
     term.loadAddon(new ClipboardAddon());
 
+    // Coalesce resize callbacks to one fit per frame, and skip when the box
+    // hasn't actually changed size — a fit() that runs on every ResizeObserver
+    // tick can feed itself through xterm's own layout and flicker endlessly.
+    let lastW = 0;
+    let lastH = 0;
+    let fitQueued = 0;
     const safeFit = () => {
       if (disposed || el.clientWidth === 0 || el.clientHeight === 0) return;
+      if (el.clientWidth === lastW && el.clientHeight === lastH) return;
+      lastW = el.clientWidth;
+      lastH = el.clientHeight;
       try {
         fit.fit();
       } catch {
         /* ignore transient layout errors */
       }
+    };
+    const queueFit = () => {
+      if (fitQueued) return;
+      fitQueued = requestAnimationFrame(() => {
+        fitQueued = 0;
+        safeFit();
+      });
     };
 
     // Open the terminal only once its container has a real size — opening into a
@@ -151,7 +167,7 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
         if (broadcastRef.current) tabsRef.current.fanoutInput(tabKey, d);
       });
       const disposeResize = term.onResize(({ cols, rows }) => socket.resize(cols, rows));
-      const ro = new ResizeObserver(() => safeFit());
+      const ro = new ResizeObserver(queueFit);
       ro.observe(el);
       const ping = setInterval(() => socket.send({ t: 'ping' }), 25_000);
 
@@ -169,6 +185,7 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
       cleanups.push(() => {
         clearInterval(ping);
         ro.disconnect();
+        if (fitQueued) cancelAnimationFrame(fitQueued);
         el.removeEventListener('paste', onPaste, true);
         disposeData.dispose();
         disposeResize.dispose();

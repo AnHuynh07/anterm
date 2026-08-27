@@ -692,23 +692,31 @@ code {
   flex: 1;
   min-height: 0;
   position: relative;
+  overflow: hidden;
 }
 .terminal-slot {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .terminal-wrap {
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
   background: #1b1e27;
 }
+/* clip xterm's own overflow — it scrolls via .xterm-viewport. Without this, a
+   fit() that overshoots by a row spills out, forces a scrollbar on an ancestor,
+   which resizes the container, which retriggers fit() — an endless flicker. */
 .terminal-host {
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
   padding: 8px 10px;
   background: #1b1e27;
 }
