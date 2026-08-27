@@ -19,6 +19,12 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 - **xterm.js terminal** with fit/resize, clipboard, web-links, search addons
 - **WebSocket transport** — binary frames for terminal I/O, JSON for control
 - **Login** (argon2, server-side sessions, CSRF-protected mutations, login rate-limiting)
+- **Roles & sharing** — `admin` / `operator` / `viewer`; an operator owns the connections
+  they create and can **share** individual devices with other users (open-only, or with
+  edit); a viewer is strictly read-only. Stored credentials are always used on the owner's
+  behalf and never revealed to a shared user
+- **Activity log** — append-only audit of logins, connection / credential / user changes,
+  sharing and host-key trust; admin-only view with filters and CSV export
 - **Connection manager** — save SSH targets per user, organised by **group / tags / colour
   label** with search; credentials encrypted at rest with AES-256-GCM
 - **Credential vault** — define a login profile (SSH auth + login automation) once and attach
@@ -167,6 +173,9 @@ Test locally without real gear: `npx tsx server/test/dev-target.ts 2223 --device
   connection until a user explicitly accepts the new one.
 - Change the bootstrap admin password on first login (Settings → Change password); doing so
   invalidates all other sessions for that account.
+- The bootstrap admin is role `admin`. Add further users in **Users** (admin only); give
+  day-to-day operators the `operator` role and auditors `viewer`. The last active admin
+  cannot be demoted, disabled or deleted.
 
 ## Development
 
