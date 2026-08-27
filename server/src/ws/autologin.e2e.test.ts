@@ -11,6 +11,7 @@ import { runMigrations } from '../db/migrate.js';
 import { SessionService } from '../auth/session.js';
 import { createUser } from '../auth/users.js';
 import { ConnectionRepo } from '../connections/repo.js';
+import { ReachabilityMonitor } from '../health/monitor.js';
 import { buildApp } from '../http/app.js';
 import { attachTerminalWs } from './terminal.js';
 import { startDeviceFixture, type DeviceFixture } from '../../test/deviceFixture.js';
@@ -27,11 +28,19 @@ const recDir = mkdtempSync(join(tmpdir(), 'anterm-rec-'));
 beforeAll(async () => {
   dev = await startDeviceFixture();
 
-  const config = loadConfig(['--app-secret', SECRET, '--db-url', ':memory:', '--record-dir', recDir]);
+  const config = loadConfig(['--app-secret', SECRET, '--db-url', ':memory:', '--record-dir', recDir, '--resume-grace-sec', '0']);
   const dbHandle = createDb(':memory:');
   runMigrations(dbHandle.sqlite);
   const sessions = new SessionService(dbHandle.db, 3_600_000);
-  const ctx: AppContext = { config, log: pino({ level: 'silent' }), db: dbHandle.db, dbHandle, sessions };
+  const log = pino({ level: 'silent' });
+  const ctx: AppContext = {
+    config,
+    log,
+    db: dbHandle.db,
+    dbHandle,
+    sessions,
+    reachability: new ReachabilityMonitor(dbHandle.db, log, []),
+  };
 
   const user = await createUser(dbHandle.db, { username: 'neteng', password: 'neteng-pass', role: 'user' });
   const repo = new ConnectionRepo(dbHandle.db, SECRET);

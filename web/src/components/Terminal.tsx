@@ -8,6 +8,7 @@ import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { TerminalSocket } from '../lib/terminalSocket';
 import { colorizeChunk } from '../lib/highlight';
 import { api } from '../lib/api';
+import { useTerminalTabs } from '../hooks/useTerminalTabs';
 import type { AdhocTarget, HostKeyPromptMsg, Snippet } from '../types';
 import { HostKeyPrompt } from './HostKeyPrompt';
 import { Badge } from './Badge';
@@ -22,13 +23,19 @@ const THEME = {
 };
 
 interface Props {
+  tabKey: string;
   connectionId?: string;
   adhoc?: AdhocTarget;
   onExit?: (reason: string) => void;
 }
 
-export function TerminalView({ connectionId, adhoc, onExit }: Props) {
+export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const tabs = useTerminalTabs();
+  const broadcastRef = useRef(tabs.broadcast);
+  broadcastRef.current = tabs.broadcast;
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
   const [status, setStatus] = useState<'connecting' | 'ready' | 'closed'>('connecting');
   const [statusDetail, setStatusDetail] = useState<string>();
   const [hostKey, setHostKey] = useState<HostKeyPromptMsg | null>(null);
@@ -43,6 +50,10 @@ export function TerminalView({ connectionId, adhoc, onExit }: Props) {
   const [pendingSend, setPendingSend] = useState<{ text: string; exec: boolean } | null>(null);
   const socketRef = useRef<TerminalSocket | null>(null);
   const highlightRef = useRef(highlight);
+  // keep onExit in a ref so an unstable parent callback never re-triggers the
+  // connect effect (which would tear down and re-open the session — flicker)
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
 
   const { data: snippetData } = useQuery({
     queryKey: ['snippets'],
@@ -122,17 +133,23 @@ export function TerminalView({ connectionId, adhoc, onExit }: Props) {
             if (state === 'ready') term.focus();
             if (state === 'closed') {
               term.write(`\r\n\x1b[90m— session closed${detail ? `: ${detail}` : ''} —\x1b[0m\r\n`);
-              onExit?.(detail ?? 'closed');
+              onExitRef.current?.(detail ?? 'closed');
             }
           },
           onHostKey: (msg) => setHostKey(msg),
           onError: (message) => term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`),
+          onToken: (token) => tabsRef.current.setToken(tabKey, token),
         },
+        tabsRef.current.getToken(tabKey),
       );
       socketRef.current = socket;
       socket.connect();
+      cleanups.push(tabsRef.current.registerSink(tabKey, { sendData: (s) => socket.sendData(s) }));
 
-      const disposeData = term.onData((d) => socket.sendData(d));
+      const disposeData = term.onData((d) => {
+        socket.sendData(d);
+        if (broadcastRef.current) tabsRef.current.fanoutInput(tabKey, d);
+      });
       const disposeResize = term.onResize(({ cols, rows }) => socket.resize(cols, rows));
       const ro = new ResizeObserver(() => safeFit());
       ro.observe(el);
@@ -158,14 +175,18 @@ export function TerminalView({ connectionId, adhoc, onExit }: Props) {
         socket.close();
       });
     };
-    boot();
+
+    // Defer the actual connect one tick so React 18 StrictMode's mount→unmount→
+    // mount in dev doesn't open (and immediately tear down) a real SSH session.
+    const bootTimer = setTimeout(boot, 0);
 
     return () => {
       disposed = true;
+      clearTimeout(bootTimer);
       cleanups.forEach((fn) => fn());
       term.dispose();
     };
-  }, [connectionId, adhoc, onExit]);
+  }, [tabKey, connectionId, adhoc]);
 
   return (
     <div className="terminal-wrap">

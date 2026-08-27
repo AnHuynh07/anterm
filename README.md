@@ -29,6 +29,11 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 - **Colour labels** — mark a connection red/"production"; its tab and a banner above the
   terminal turn red so you know which box you're typing on
 - **Import / export** the inventory as JSON or CSV (no secrets; credentials referenced by name)
+- **Reachability dashboard** — periodic TCP probe of every saved connection; a grouped
+  UP / DOWN board with latency
+- **Resume on reconnect** — a dropped WebSocket re-attaches to the still-running SSH session
+  and replays whatever output was missed (grace window, default 90 s)
+- **Broadcast** — type once, send to every open terminal tab (with a loud banner)
 - **Host key verification** — trust-on-first-use prompt in the UI; stored and checked on
   every later connection; loud warning if a key changes
 - **Session recording & audit** — every session recorded to asciinema `.cast` (secrets
@@ -100,6 +105,7 @@ for the full list. Common options:
 | `--allow-hosts` | `ANTERM_ALLOW_HOSTS` | (any) | Comma-separated SSH target allowlist |
 | `--ssh-idle-timeout-min` | `ANTERM_SSH_IDLE_TIMEOUT_MIN` | `0` (off) | Close idle SSH sessions |
 | `--ssh-max-duration-min` | `ANTERM_SSH_MAX_DURATION_MIN` | `0` (off) | Hard cap on session length |
+| `--resume-grace-sec` | `ANTERM_RESUME_GRACE_SEC` | `90` | Keep SSH alive N s after a WS drop for resume (0 = off) |
 | `--session-ttl-hours` | `ANTERM_SESSION_TTL_HOURS` | `12` | Login session lifetime |
 | `--allow-iframe` | `ANTERM_ALLOW_IFRAME` | `false` | Allow embedding in an iframe |
 | `--record` / `--no-record` | `ANTERM_RECORD` | `true` | Record session I/O + command log |

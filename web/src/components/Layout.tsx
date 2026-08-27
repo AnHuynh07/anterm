@@ -12,6 +12,9 @@ export function Layout() {
       <header className="app-header">
         <div className="brand">AnTerm</div>
         <nav>
+          <NavLink to="/dashboard" className={navClass}>
+            Dashboard
+          </NavLink>
           <NavLink to="/connections" className={navClass}>
             Connections
           </NavLink>

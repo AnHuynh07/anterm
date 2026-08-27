@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -10,7 +10,7 @@ import { COLOR_HEX } from '../components/colors';
 export function TerminalPage() {
   const { connectionId } = useParams();
   const navigate = useNavigate();
-  const { tabs, activeKey, openTab, closeTab, setActive } = useTerminalTabs();
+  const { tabs, activeKey, openTab, closeTab, setActive, broadcast, setBroadcast } = useTerminalTabs();
 
   const { data } = useQuery({
     queryKey: ['connections'],
@@ -26,6 +26,19 @@ export function TerminalPage() {
     openTab({ connectionId, title: c?.name ?? 'session', color: c?.color ?? undefined });
     navigate('/terminal', { replace: true });
   }, [connectionId, data, openTab, navigate]);
+
+  // Every open tab keeps a live terminal while this page is mounted (so tab
+  // switching and Broadcast keep all sessions connected). New tabs are added as
+  // they open; a session that dropped resumes from its stored token.
+  const [mounted, setMounted] = useState<Set<string>>(() => new Set(tabs.map((t) => t.key)));
+  useEffect(() => {
+    setMounted((prev) => {
+      const next = new Set(prev);
+      for (const t of tabs) next.add(t.key);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [tabs]);
+  const liveTabs = useMemo(() => tabs.filter((t) => mounted.has(t.key)), [tabs, mounted]);
 
   const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0];
 
@@ -64,20 +77,37 @@ export function TerminalPage() {
             </button>
           </div>
         ))}
+        <span className="spacer" />
+        {tabs.length > 1 && (
+          <button
+            className={`btn sm ${broadcast ? 'danger' : 'ghost'}`}
+            title="Send keystrokes typed in any tab to every open session"
+            onClick={() => setBroadcast(!broadcast)}
+          >
+            Broadcast {broadcast ? 'ON' : 'off'}
+          </button>
+        )}
       </div>
-      {activeTab?.color && (
+
+      {broadcast && tabs.length > 1 && (
+        <div className="conn-banner broadcast">⚡ Broadcast — you are typing to all {tabs.length} sessions</div>
+      )}
+      {activeTab?.color && !broadcast && (
         <div className="conn-banner" style={{ background: COLOR_HEX[activeTab.color] }}>
           {activeTab.title}
         </div>
       )}
+
       <div className="terminal-stage">
-        {/* Render only the active session — xterm needs a visible, sized container.
-            Switching tabs (re)connects that session. */}
-        {activeTab && (
-          <div key={activeTab.key} className="terminal-slot">
-            <TerminalView connectionId={activeTab.connectionId} adhoc={activeTab.adhoc} onExit={() => undefined} />
+        {liveTabs.map((t) => (
+          <div
+            key={t.key}
+            className="terminal-slot"
+            style={{ visibility: t.key === activeKey ? 'visible' : 'hidden', zIndex: t.key === activeKey ? 1 : 0 }}
+          >
+            <TerminalView tabKey={t.key} connectionId={t.connectionId} adhoc={t.adhoc} onExit={() => undefined} />
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

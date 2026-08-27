@@ -9,6 +9,7 @@ import { TerminalTabsProvider } from './hooks/useTerminalTabs';
 import { RequireAuth } from './components/RequireAuth';
 import { Layout } from './components/Layout';
 import { LoginPage } from './routes/Login';
+import { DashboardPage } from './routes/Dashboard';
 import { ConnectionsPage } from './routes/Connections';
 import { CredentialsPage } from './routes/Credentials';
 import { TerminalPage } from './routes/Terminal';
@@ -31,7 +32,8 @@ const router = createBrowserRouter(
         </RequireAuth>
       ),
       children: [
-        { index: true, element: <Navigate to="/connections" replace /> },
+        { index: true, element: <Navigate to="/dashboard" replace /> },
+        { path: 'dashboard', element: <DashboardPage /> },
         { path: 'connections', element: <ConnectionsPage /> },
         { path: 'credentials', element: <CredentialsPage /> },
         { path: 'terminal/:connectionId', element: <TerminalPage /> },

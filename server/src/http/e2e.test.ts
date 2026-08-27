@@ -3,6 +3,7 @@ import { pino } from 'pino';
 import { WebSocket } from 'ws';
 import { loadConfig } from '../config.js';
 import type { AppContext } from '../context.js';
+import { ReachabilityMonitor } from '../health/monitor.js';
 import { createDb } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { SessionService } from '../auth/session.js';
@@ -25,12 +26,19 @@ let csrf: string;
 beforeAll(async () => {
   fx = await startSshFixture();
 
-  const config = loadConfig(['--app-secret', APP_SECRET, '--db-url', ':memory:', '--no-record']);
+  const config = loadConfig(['--app-secret', APP_SECRET, '--db-url', ':memory:', '--no-record', '--resume-grace-sec', '0']);
   const log = pino({ level: 'silent' });
   const dbHandle = createDb(':memory:');
   runMigrations(dbHandle.sqlite);
   const sessions = new SessionService(dbHandle.db, 3_600_000);
-  ctx = { config, log, db: dbHandle.db, dbHandle, sessions };
+  ctx = {
+    config,
+    log,
+    db: dbHandle.db,
+    dbHandle,
+    sessions,
+    reachability: new ReachabilityMonitor(dbHandle.db, log, []),
+  };
 
   const user = await createUser(dbHandle.db, { username: 'e2e', password: 'e2e-password', role: 'admin' });
   const repo = new ConnectionRepo(dbHandle.db, APP_SECRET);

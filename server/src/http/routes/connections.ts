@@ -47,6 +47,20 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     return { connections: rows.map(toDto) };
   });
 
+  // ---- reachability dashboard ----
+  app.get('/connections/health', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const ids = (await repo.list(user.id)).map((c) => c.id);
+    return { health: ctx.reachability.snapshot(ids) };
+  });
+
+  app.post('/connections/health/check', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    return { health: await ctx.reachability.checkUser(user.id) };
+  });
+
   // ---- export (never includes secrets) ----
   app.get('/connections/export', async (req, reply) => {
     const user = requireAuth(req, reply);

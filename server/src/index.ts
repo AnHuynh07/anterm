@@ -9,6 +9,7 @@ import { runMigrations } from './db/migrate.js';
 import { bootstrapAdmin } from './auth/users.js';
 import { SessionService } from './auth/session.js';
 import { AuditLog } from './audit.js';
+import { ReachabilityMonitor } from './health/monitor.js';
 import { buildApp } from './http/app.js';
 import { attachTerminalWs } from './ws/terminal.js';
 
@@ -26,7 +27,10 @@ async function main(): Promise<void> {
   const sessions = new SessionService(dbHandle.db, config.sessionTtlHours * 3_600_000);
   await bootstrapAdmin(dbHandle.db, log, { username: config.adminUser, password: config.adminPassword });
 
-  const ctx: AppContext = { config, log, db: dbHandle.db, dbHandle, sessions };
+  const reachability = new ReachabilityMonitor(dbHandle.db, log, config.allowHosts);
+  reachability.start();
+
+  const ctx: AppContext = { config, log, db: dbHandle.db, dbHandle, sessions, reachability };
 
   const app = await buildApp(ctx);
   const detachWs = attachTerminalWs(app.server, ctx);
@@ -59,6 +63,7 @@ async function main(): Promise<void> {
     log.info({ signal }, 'shutting down');
     clearInterval(sweep);
     clearInterval(retentionTimer);
+    reachability.stop();
     detachWs();
     await app.close();
     dbHandle.close();

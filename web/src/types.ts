@@ -52,6 +52,13 @@ export interface Snippet {
   sortOrder: number;
 }
 
+export interface ReachResult {
+  status: 'up' | 'down' | 'unknown';
+  checkedAt: number;
+  latencyMs: number | null;
+  detail: string | null;
+}
+
 export interface CommandRecord {
   id: string;
   ts: number;
@@ -87,12 +94,14 @@ export interface HostKeyPromptMsg {
 
 export type ServerMessage =
   | { t: 'status'; state: 'connecting' | 'ready' | 'closed'; detail?: string }
+  | { t: 'attached'; token: string; resumed?: boolean }
   | HostKeyPromptMsg
   | { t: 'error'; message: string }
   | { t: 'pong' };
 
 export type ClientMessage =
   | { t: 'open'; connectionId?: string; adhoc?: AdhocTarget; cols: number; rows: number }
+  | { t: 'attach'; token: string; cols: number; rows: number }
   | { t: 'resize'; cols: number; rows: number }
   | { t: 'hostkey'; accept: boolean }
   | { t: 'ping' };

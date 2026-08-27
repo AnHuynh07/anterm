@@ -1,4 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
+import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import type { AppContext } from '../context.js';
@@ -12,9 +14,10 @@ import type { TerminalBackend } from '../ssh/backend.js';
 import { AutoLogin, type AutoLoginConfig } from '../ssh/autologin.js';
 import { CommandExtractor, SessionRecorder } from '../ssh/recorder.js';
 import { makeHostKeyVerifier, type HostKeyPrompt } from '../ssh/hostkeys.js';
-import { join } from 'node:path';
-import { clientMessage, encodeServer, type ServerMessage } from './protocol.js';
+import { clientMessage, encodeServer, type ClientMessage, type ServerMessage } from './protocol.js';
 import { SID_COOKIE } from '../auth/session.js';
+
+const RING_MAX = 256 * 1024;
 
 function parseCookies(header?: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -36,13 +39,39 @@ function clientIp(req: IncomingMessage, trustProxy: boolean): string | undefined
   return req.socket.remoteAddress ?? undefined;
 }
 
+interface Deps {
+  repo: ConnectionRepo;
+  creds: CredentialRepo;
+  audit: AuditLog;
+}
+
+type OpenMsg = Extract<ClientMessage, { t: 'open' }>;
+
+interface Target {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  privateKey?: string;
+  passphrase?: string;
+  command?: string;
+  connectionId?: string;
+  autoLogin?: AutoLoginConfig;
+  antiIdleSeconds?: number;
+  auditTarget: string;
+  local?: boolean;
+}
+
 export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => void {
   const { config, log } = ctx;
   const wss = new WebSocketServer({ noServer: true });
   const wsPath = `${config.base === '/' ? '' : config.base}/ws/terminal`;
-  const repo = new ConnectionRepo(ctx.db, config.appSecret);
-  const creds = new CredentialRepo(ctx.db, config.appSecret);
-  const audit = new AuditLog(ctx.db);
+  const deps: Deps = {
+    repo: new ConnectionRepo(ctx.db, config.appSecret),
+    creds: new CredentialRepo(ctx.db, config.appSecret),
+    audit: new AuditLog(ctx.db),
+  };
+  const registry = new Map<string, LiveSession>();
 
   const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     let pathname: string;
@@ -52,7 +81,7 @@ export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => voi
       socket.destroy();
       return;
     }
-    if (pathname !== wsPath) return; // let other upgrade handlers have it
+    if (pathname !== wsPath) return;
 
     const sid = parseCookies(req.headers.cookie)[SID_COOKIE];
     ctx.sessions
@@ -64,7 +93,7 @@ export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => voi
           return;
         }
         wss.handleUpgrade(req, socket, head, (ws) => {
-          new TerminalBridge(ws, req, ctx, repo, creds, audit, resolved.user).start();
+          new ClientConn(ws, req, ctx, deps, resolved.user, registry).start();
         });
       })
       .catch((err) => {
@@ -76,14 +105,20 @@ export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => voi
   server.on('upgrade', onUpgrade);
   return () => {
     server.off('upgrade', onUpgrade);
+    for (const live of registry.values()) live.close('server shutdown');
     wss.close();
   };
 }
 
-class TerminalBridge {
+/**
+ * An SSH/local session that lives independently of any WebSocket. Clients attach
+ * and detach; when the last one leaves, a grace timer keeps the session (and a
+ * ring buffer of recent output) alive so a reconnecting client can resume.
+ */
+class LiveSession {
+  readonly token = randomBytes(24).toString('base64url');
   private backend: TerminalBackend | null = null;
   private autoLogin: AutoLogin | null = null;
-  /** secret strings the auto-login typed — for redaction in recordings */
   readonly redact: string[] = [];
   private recorder: SessionRecorder | null = null;
   private cmdExtractor = new CommandExtractor();
@@ -91,180 +126,56 @@ class TerminalBridge {
   private commandCount = 0;
   private cmdFlushTimer: NodeJS.Timeout | null = null;
   private antiIdleTimer: NodeJS.Timeout | null = null;
-  private lastActivity = Date.now();
-  private auditId: string | null = null;
-  private auditTarget = '';
-  private cols = 80;
-  private rows = 24;
-  private bytesIn = 0;
-  private bytesOut = 0;
-  private opened = false;
-  private finished = false;
-  private pendingHostKey: ((accept: boolean) => void) | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
   private maxTimer: NodeJS.Timeout | null = null;
+  private graceTimer: NodeJS.Timeout | null = null;
+  private lastActivity = Date.now();
+
+  private auditId: string | null = null;
+  private bytesIn = 0;
+  private bytesOut = 0;
+  private closed = false;
+  private ready = false;
+
+  // ring buffer of recent output for resume
+  private ring: Buffer[] = [];
+  private ringBytes = 0;
+  private producedTotal = 0; // monotonic total bytes ever produced
+  private detachTotal = 0; // producedTotal at the moment the last client left
+
+  private clients = new Set<ClientConn>();
+  private pendingHostKey: ((accept: boolean) => void) | null = null;
 
   constructor(
-    private readonly ws: WebSocket,
-    private readonly req: IncomingMessage,
     private readonly ctx: AppContext,
-    private readonly repo: ConnectionRepo,
-    private readonly creds: CredentialRepo,
-    private readonly audit: AuditLog,
+    private readonly deps: Deps,
     private readonly user: User,
-  ) {}
-
-  start(): void {
-    this.ws.binaryType = 'nodebuffer';
-    this.send({ t: 'status', state: 'connecting' });
-    this.ws.on('message', (data, isBinary) => this.onMessage(data, isBinary));
-    this.ws.on('close', () => this.teardown('websocket closed'));
-    this.ws.on('error', () => this.teardown('websocket error'));
+    private readonly target: Target,
+    private cols: number,
+    private rows: number,
+    private readonly registry: Map<string, LiveSession>,
+  ) {
+    registry.set(this.token, this);
   }
 
-  private send(msg: ServerMessage): void {
-    if (this.ws.readyState === this.ws.OPEN) this.ws.send(encodeServer(msg));
+  get userId(): string {
+    return this.user.id;
   }
 
-  private async onMessage(data: RawData, isBinary: boolean): Promise<void> {
-    if (isBinary) {
-      const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
-      this.bytesIn += buf.length;
-      this.lastActivity = Date.now();
-      this.bumpIdle();
-      const cmds = this.cmdExtractor.feed(buf);
-      if (cmds.length) {
-        this.pendingCommands.push(...cmds);
-        this.commandCount += cmds.length;
-        this.scheduleCommandFlush();
-      }
-      this.backend?.write(buf);
-      return;
-    }
+  connect(firstClient: ClientConn): void {
+    this.clients.add(firstClient);
 
-    let parsed;
-    try {
-      parsed = clientMessage.parse(JSON.parse(data.toString()));
-    } catch {
-      this.send({ t: 'error', message: 'invalid control message' });
-      return;
-    }
-
-    switch (parsed.t) {
-      case 'ping':
-        this.send({ t: 'pong' });
-        return;
-      case 'resize':
-        this.backend?.resize(parsed.cols, parsed.rows);
-        return;
-      case 'hostkey':
-        this.pendingHostKey?.(parsed.accept);
-        this.pendingHostKey = null;
-        return;
-      case 'open':
-        if (this.opened) return;
-        this.opened = true;
-        await this.open(parsed);
-        return;
-    }
-  }
-
-  private async open(msg: Extract<import('./protocol.js').ClientMessage, { t: 'open' }>): Promise<void> {
-    const { config } = this.ctx;
-    this.cols = msg.cols;
-    this.rows = msg.rows;
-
-    let target: {
-      host: string;
-      port: number;
-      username: string;
-      password?: string;
-      privateKey?: string;
-      passphrase?: string;
-      command?: string;
-      connectionId?: string;
-      autoLogin?: AutoLoginConfig;
-      antiIdleSeconds?: number;
-    };
-
-    // WeTTY-style local shell: `anterm --ssh-host localhost` (no --force-ssh),
-    // opened without a saved connection or ad-hoc override.
-    if (!msg.connectionId && !msg.adhoc && config.localShell) {
-      this.startLocalShell(msg);
-      return;
-    }
-
-    try {
-      if (msg.connectionId) {
-        const conn = await this.repo.get(this.user.id, msg.connectionId);
-        if (!conn) {
-          this.fail('connection not found');
-          return;
-        }
-        const cred = conn.credentialId ? await this.creds.get(this.user.id, conn.credentialId) : undefined;
-        const resolved = resolveTarget(conn, cred ?? null, config.appSecret);
-        const username = conn.sshUsername || resolved.credSshUsername || '';
-        if (!username) {
-          this.fail('no SSH username — set one on the connection or its credential');
-          return;
-        }
-        const hasAuto = Boolean(resolved.autoLogin);
-        target = {
-          host: conn.host,
-          port: conn.port,
-          username,
-          // login automation needs an interactive shell; exec-mode init command is ignored then
-          command: hasAuto ? undefined : (conn.initCommand ?? config.ssh.command),
-          connectionId: conn.id,
-          autoLogin: resolved.autoLogin ?? undefined,
-          antiIdleSeconds: conn.antiIdleSeconds || undefined,
-          password: resolved.password,
-          privateKey: resolved.privateKey,
-          passphrase: resolved.passphrase,
-        };
-      } else if (msg.adhoc) {
-        if (!config.adhocEnabled) {
-          this.fail('ad-hoc SSH is disabled on this server');
-          return;
-        }
-        target = {
-          host: msg.adhoc.host,
-          port: msg.adhoc.port,
-          username: msg.adhoc.username,
-          password: msg.adhoc.password,
-          privateKey: msg.adhoc.privateKey,
-          passphrase: msg.adhoc.passphrase,
-          command: config.ssh.command,
-        };
-      } else if (config.adhocEnabled && config.ssh.host) {
-        if (!config.ssh.user) {
-          this.fail('server ad-hoc mode has no default SSH user configured');
-          return;
-        }
-        target = {
-          host: config.ssh.host,
-          port: config.ssh.port,
-          username: config.ssh.user,
-          command: config.ssh.command,
-        };
-      } else {
-        this.fail('no connection specified');
-        return;
-      }
-    } catch (err) {
-      this.fail(`failed to resolve connection: ${(err as Error).message}`);
-      return;
-    }
-
-    if (!this.hostAllowed(target.host)) {
-      this.fail(`host not allowed: ${target.host}`);
+    if (this.target.local) {
+      const local = new LocalSession({ command: this.target.command, cols: this.cols, rows: this.rows });
+      this.wire(local);
+      local.connect();
       return;
     }
 
     const prompt: HostKeyPrompt = (info) =>
       new Promise<boolean>((resolve) => {
         this.pendingHostKey = resolve;
-        this.send({
+        this.fanoutMsg({
           t: 'hostkey-prompt',
           hostport: info.hostport,
           status: info.status === 'known' ? 'unknown' : info.status,
@@ -274,101 +185,73 @@ class TerminalBridge {
         });
       });
 
-    const verifyHostKey = makeHostKeyVerifier(this.ctx.db, this.user.id, prompt);
-
     const ssh = new SshSession({
-      host: target.host,
-      port: target.port,
-      username: target.username,
-      password: target.password,
-      privateKey: target.privateKey,
-      passphrase: target.passphrase,
-      command: target.command,
-      cols: msg.cols,
-      rows: msg.rows,
-      verifyHostKey,
+      host: this.target.host,
+      port: this.target.port,
+      username: this.target.username,
+      password: this.target.password,
+      privateKey: this.target.privateKey,
+      passphrase: this.target.passphrase,
+      command: this.target.command,
+      cols: this.cols,
+      rows: this.rows,
+      verifyHostKey: makeHostKeyVerifier(this.ctx.db, this.user.id, prompt),
     });
-    this.wireBackend(
-      ssh,
-      `${target.username}@${target.host}:${target.port}`,
-      target.connectionId,
-      target.autoLogin,
-      target.antiIdleSeconds,
-    );
+    this.wire(ssh);
     ssh.connect();
   }
 
-  private startLocalShell(msg: Extract<import('./protocol.js').ClientMessage, { t: 'open' }>): void {
-    const local = new LocalSession({
-      command: this.ctx.config.ssh.command,
-      cols: msg.cols,
-      rows: msg.rows,
-    });
-    this.wireBackend(local, `local:${process.env.SHELL ?? 'shell'}`);
-    local.connect();
-  }
-
-  private wireBackend(
-    backend: TerminalBackend,
-    auditTarget: string,
-    connectionId?: string,
-    autoLogin?: AutoLoginConfig,
-    antiIdleSeconds?: number,
-  ): void {
+  private wire(backend: TerminalBackend): void {
     this.backend = backend;
-    this.auditTarget = auditTarget;
 
     backend.on('ready', () => {
-      void this.onBackendReady(connectionId);
-      if (autoLogin) {
+      this.ready = true;
+      void this.onReady();
+      if (this.target.autoLogin) {
         this.autoLogin = new AutoLogin(
-          autoLogin,
+          this.target.autoLogin,
           (s) => backend.write(s),
           (s) => this.redact.push(s),
         );
       }
-      if (antiIdleSeconds && antiIdleSeconds > 0) this.startAntiIdle(backend, antiIdleSeconds * 1000);
-      this.send({ t: 'status', state: 'ready' });
+      const ai = this.target.antiIdleSeconds;
+      if (ai && ai > 0) this.startAntiIdle(ai * 1000);
       this.armTimers();
+      this.fanoutMsg({ t: 'status', state: 'ready' });
     });
 
     backend.on('data', (chunk) => {
       this.bytesOut += chunk.length;
+      this.producedTotal += chunk.length;
       this.lastActivity = Date.now();
       this.bumpIdle();
       this.autoLogin?.feed(chunk);
       this.recorder?.output(chunk);
-      if (this.ws.readyState === this.ws.OPEN) this.ws.send(chunk, { binary: true });
+      this.ring.push(chunk);
+      this.ringBytes += chunk.length;
+      while (this.ringBytes > RING_MAX && this.ring.length > 1) {
+        this.ringBytes -= this.ring.shift()!.length;
+      }
+      this.fanoutBinary(chunk);
     });
 
     backend.on('error', (err) => {
-      this.ctx.log.info({ err: err.message, target: auditTarget }, 'terminal backend error');
-      this.send({ t: 'error', message: err.message });
+      this.ctx.log.info({ err: err.message, target: this.target.auditTarget }, 'terminal backend error');
+      this.fanoutMsg({ t: 'error', message: err.message });
     });
 
-    backend.on('close', (info) => {
-      this.send({ t: 'status', state: 'closed', detail: info.reason });
-      this.teardown(info.reason);
-    });
+    backend.on('close', (info) => this.close(info.reason));
   }
 
-  private hostAllowed(host: string): boolean {
-    const list = this.ctx.config.allowHosts;
-    if (!list.length) return true;
-    return list.includes(host.toLowerCase());
-  }
-
-  private async onBackendReady(connectionId?: string): Promise<void> {
+  private async onReady(): Promise<void> {
     const { config } = this.ctx;
     let recordingPath: string | null = null;
-
-    // start the .cast recorder before writing the audit row so the row carries its path
     if (config.record) {
-      const rel = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.cast`;
+      const rel = `${Date.now().toString(36)}-${randomBytes(3).toString('hex')}.cast`;
       const rec = new SessionRecorder(join(config.recordingsDir, rel), {
         cols: this.cols,
         rows: this.rows,
-        title: this.auditTarget,
+        title: this.target.auditTarget,
         redact: () => this.redact,
       });
       if (rec.open()) {
@@ -378,26 +261,93 @@ class TerminalBridge {
         this.ctx.log.warn('could not start session recording (disk?)');
       }
     }
-
-    this.auditId = await this.audit.open({
+    this.auditId = await this.deps.audit.open({
       userId: this.user.id,
-      connectionId,
-      target: this.auditTarget,
-      clientIp: clientIp(this.req, config.trustProxy),
+      connectionId: this.target.connectionId,
+      target: this.target.auditTarget,
+      clientIp: [...this.clients][0]?.ip,
       recordingPath,
     });
-    // flush any commands that were typed before the audit row existed
     this.flushCommands();
   }
 
-  /** Keep a device session alive: send a harmless NUL whenever the channel has
-   *  been silent (no input and no output) for the configured interval. */
-  private startAntiIdle(backend: TerminalBackend, intervalMs: number): void {
+  // ---- client attach / detach ----
+
+  attach(client: ClientConn, cols?: number, rows?: number): void {
+    this.clients.add(client);
+    if (this.graceTimer) {
+      clearTimeout(this.graceTimer);
+      this.graceTimer = null;
+    }
+    if (cols && rows && (cols !== this.cols || rows !== this.rows)) {
+      this.cols = cols;
+      this.rows = rows;
+      this.backend?.resize(cols, rows);
+    }
+
+    // replay whatever was produced while every client was away
+    const skip = Math.max(0, this.detachTotal - (this.producedTotal - this.ringBytes));
+    const missed = Buffer.concat(this.ring).subarray(Math.min(skip, this.ringBytes));
+    if (missed.length) client.sendBinary(missed);
+    if (this.ready) client.send({ t: 'status', state: 'ready' });
+  }
+
+  detach(client: ClientConn): void {
+    this.clients.delete(client);
+    if (this.clients.size > 0 || this.closed) return;
+    this.detachTotal = this.producedTotal;
+    const grace = this.ctx.config.resumeGraceSec;
+    if (grace <= 0) {
+      this.close('websocket closed');
+      return;
+    }
+    this.graceTimer = setTimeout(() => this.close('resume window expired'), grace * 1000);
+    this.graceTimer.unref?.();
+  }
+
+  // ---- input from a client ----
+
+  write(data: Buffer): void {
+    this.bytesIn += data.length;
+    this.lastActivity = Date.now();
+    this.bumpIdle();
+    const cmds = this.cmdExtractor.feed(data);
+    if (cmds.length) {
+      this.pendingCommands.push(...cmds);
+      this.commandCount += cmds.length;
+      this.scheduleCommandFlush();
+    }
+    this.backend?.write(data);
+  }
+
+  resize(cols: number, rows: number): void {
+    this.cols = cols;
+    this.rows = rows;
+    this.backend?.resize(cols, rows);
+  }
+
+  answerHostKey(accept: boolean): void {
+    this.pendingHostKey?.(accept);
+    this.pendingHostKey = null;
+  }
+
+  // ---- fan-out ----
+
+  private fanoutMsg(msg: ServerMessage): void {
+    for (const c of this.clients) c.send(msg);
+  }
+  private fanoutBinary(buf: Buffer): void {
+    for (const c of this.clients) c.sendBinary(buf);
+  }
+
+  // ---- timers ----
+
+  private startAntiIdle(intervalMs: number): void {
     const period = Math.max(intervalMs, 15_000);
     this.antiIdleTimer = setInterval(() => {
       if (Date.now() - this.lastActivity >= period) {
         try {
-          backend.write('\x00');
+          this.backend?.write('\x00');
         } catch {
           /* ignore */
         }
@@ -405,6 +355,23 @@ class TerminalBridge {
       }
     }, Math.min(period, 30_000));
     this.antiIdleTimer.unref?.();
+  }
+
+  private armTimers(): void {
+    const { sshMaxDurationMin } = this.ctx.config;
+    if (sshMaxDurationMin > 0) {
+      this.maxTimer = setTimeout(() => this.close('max session duration reached'), sshMaxDurationMin * 60_000);
+      this.maxTimer.unref?.();
+    }
+    this.bumpIdle();
+  }
+
+  private bumpIdle(): void {
+    const mins = this.ctx.config.sshIdleTimeoutMin;
+    if (mins <= 0) return;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => this.close('idle timeout'), mins * 60_000);
+    this.idleTimer.unref?.();
   }
 
   private scheduleCommandFlush(): void {
@@ -419,45 +386,21 @@ class TerminalBridge {
     if (!this.auditId || !this.pendingCommands.length) return;
     const texts = this.pendingCommands;
     this.pendingCommands = [];
-    void this.audit
-      .logCommands({ sessionId: this.auditId, userId: this.user.id, target: this.auditTarget, texts })
+    void this.deps.audit
+      .logCommands({ sessionId: this.auditId, userId: this.user.id, target: this.target.auditTarget, texts })
       .catch((err) => this.ctx.log.warn({ err }, 'command log write failed'));
   }
 
-  private armTimers(): void {
-    const { sshMaxDurationMin } = this.ctx.config;
-    if (sshMaxDurationMin > 0) {
-      this.maxTimer = setTimeout(
-        () => this.backend?.close('max session duration reached'),
-        sshMaxDurationMin * 60_000,
-      );
-    }
-    this.bumpIdle();
-  }
+  // ---- shutdown ----
 
-  private bumpIdle(): void {
-    const mins = this.ctx.config.sshIdleTimeoutMin;
-    if (mins <= 0) return;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => this.backend?.close('idle timeout'), mins * 60_000);
-  }
-
-  private fail(message: string): void {
-    this.send({ t: 'error', message });
-    this.send({ t: 'status', state: 'closed', detail: message });
-    this.teardown(message);
-  }
-
-  private teardown(reason: string): void {
-    if (this.finished) return;
-    this.finished = true;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    if (this.maxTimer) clearTimeout(this.maxTimer);
-    if (this.cmdFlushTimer) clearTimeout(this.cmdFlushTimer);
+  close(reason: string): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.registry.delete(this.token);
+    for (const t of [this.idleTimer, this.maxTimer, this.cmdFlushTimer, this.graceTimer]) if (t) clearTimeout(t);
     if (this.antiIdleTimer) clearInterval(this.antiIdleTimer);
     this.autoLogin?.dispose();
     this.recorder?.close();
-    this.recorder = null;
     this.pendingHostKey?.(false);
     this.pendingHostKey = null;
     try {
@@ -467,7 +410,7 @@ class TerminalBridge {
     }
     this.flushCommands();
     if (this.auditId) {
-      void this.audit.close(this.auditId, {
+      void this.deps.audit.close(this.auditId, {
         bytesIn: this.bytesIn,
         bytesOut: this.bytesOut,
         exitReason: reason,
@@ -475,10 +418,173 @@ class TerminalBridge {
       });
       this.auditId = null;
     }
-    try {
-      if (this.ws.readyState === this.ws.OPEN) this.ws.close();
-    } catch {
-      /* ignore */
+    this.fanoutMsg({ t: 'status', state: 'closed', detail: reason });
+    for (const c of this.clients) c.detachFromLive();
+    this.clients.clear();
+  }
+}
+
+/** One WebSocket client, attached to at most one LiveSession. */
+class ClientConn {
+  readonly ip?: string;
+  private live: LiveSession | null = null;
+  private handledOpen = false;
+
+  constructor(
+    private readonly ws: WebSocket,
+    req: IncomingMessage,
+    private readonly ctx: AppContext,
+    private readonly deps: Deps,
+    private readonly user: User,
+    private readonly registry: Map<string, LiveSession>,
+  ) {
+    this.ip = clientIp(req, ctx.config.trustProxy);
+  }
+
+  start(): void {
+    this.ws.binaryType = 'nodebuffer';
+    this.send({ t: 'status', state: 'connecting' });
+    this.ws.on('message', (data, isBinary) => void this.onMessage(data, isBinary));
+    this.ws.on('close', () => this.onWsClose());
+    this.ws.on('error', () => this.onWsClose());
+  }
+
+  send(msg: ServerMessage): void {
+    if (this.ws.readyState === this.ws.OPEN) this.ws.send(encodeServer(msg));
+  }
+  sendBinary(buf: Buffer): void {
+    if (this.ws.readyState === this.ws.OPEN) this.ws.send(buf, { binary: true });
+  }
+
+  /** Called by LiveSession when it closes. */
+  detachFromLive(): void {
+    this.live = null;
+  }
+
+  private onWsClose(): void {
+    this.live?.detach(this);
+    this.live = null;
+  }
+
+  private async onMessage(data: RawData, isBinary: boolean): Promise<void> {
+    if (isBinary) {
+      const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+      this.live?.write(buf);
+      return;
     }
+    let msg: ClientMessage;
+    try {
+      msg = clientMessage.parse(JSON.parse(data.toString()));
+    } catch {
+      this.send({ t: 'error', message: 'invalid control message' });
+      return;
+    }
+
+    switch (msg.t) {
+      case 'ping':
+        this.send({ t: 'pong' });
+        return;
+      case 'resize':
+        this.live?.resize(msg.cols, msg.rows);
+        return;
+      case 'hostkey':
+        this.live?.answerHostKey(msg.accept);
+        return;
+      case 'attach': {
+        const live = this.registry.get(msg.token);
+        if (!live || live.userId !== this.user.id) {
+          this.send({ t: 'status', state: 'closed', detail: 'session no longer available' });
+          return;
+        }
+        this.live = live;
+        live.attach(this, msg.cols, msg.rows);
+        this.send({ t: 'attached', token: live.token, resumed: true });
+        return;
+      }
+      case 'open':
+        if (this.handledOpen) return;
+        this.handledOpen = true;
+        await this.open(msg);
+        return;
+    }
+  }
+
+  private fail(message: string): void {
+    this.send({ t: 'error', message });
+    this.send({ t: 'status', state: 'closed', detail: message });
+  }
+
+  private async open(msg: OpenMsg): Promise<void> {
+    const { config } = this.ctx;
+    let target: Target;
+
+    try {
+      if (!msg.connectionId && !msg.adhoc && config.localShell) {
+        target = {
+          host: 'localhost',
+          port: 0,
+          username: '',
+          command: config.ssh.command,
+          local: true,
+          auditTarget: `local:${process.env.SHELL ?? 'shell'}`,
+        };
+      } else if (msg.connectionId) {
+        const conn = await this.deps.repo.get(this.user.id, msg.connectionId);
+        if (!conn) return this.fail('connection not found');
+        const cred = conn.credentialId ? await this.deps.creds.get(this.user.id, conn.credentialId) : undefined;
+        const resolved = resolveTarget(conn, cred ?? null, config.appSecret);
+        const username = conn.sshUsername || resolved.credSshUsername || '';
+        if (!username) return this.fail('no SSH username — set one on the connection or its credential');
+        const hasAuto = Boolean(resolved.autoLogin);
+        target = {
+          host: conn.host,
+          port: conn.port,
+          username,
+          command: hasAuto ? undefined : (conn.initCommand ?? config.ssh.command),
+          connectionId: conn.id,
+          autoLogin: resolved.autoLogin ?? undefined,
+          antiIdleSeconds: conn.antiIdleSeconds || undefined,
+          password: resolved.password,
+          privateKey: resolved.privateKey,
+          passphrase: resolved.passphrase,
+          auditTarget: `${username}@${conn.host}:${conn.port}`,
+        };
+      } else if (msg.adhoc) {
+        if (!config.adhocEnabled) return this.fail('ad-hoc SSH is disabled on this server');
+        target = {
+          host: msg.adhoc.host,
+          port: msg.adhoc.port,
+          username: msg.adhoc.username,
+          password: msg.adhoc.password,
+          privateKey: msg.adhoc.privateKey,
+          passphrase: msg.adhoc.passphrase,
+          command: config.ssh.command,
+          auditTarget: `${msg.adhoc.username}@${msg.adhoc.host}:${msg.adhoc.port}`,
+        };
+      } else if (config.adhocEnabled && config.ssh.host) {
+        if (!config.ssh.user) return this.fail('server ad-hoc mode has no default SSH user configured');
+        target = {
+          host: config.ssh.host,
+          port: config.ssh.port,
+          username: config.ssh.user,
+          command: config.ssh.command,
+          auditTarget: `${config.ssh.user}@${config.ssh.host}:${config.ssh.port}`,
+        };
+      } else {
+        return this.fail('no connection specified');
+      }
+    } catch (err) {
+      return this.fail(`failed to resolve connection: ${(err as Error).message}`);
+    }
+
+    const list = config.allowHosts;
+    if (!target.local && list.length && !list.includes(target.host.toLowerCase())) {
+      return this.fail(`host not allowed: ${target.host}`);
+    }
+
+    const live = new LiveSession(this.ctx, this.deps, this.user, target, msg.cols, msg.rows, this.registry);
+    this.live = live;
+    this.send({ t: 'attached', token: live.token });
+    live.connect(this);
   }
 }

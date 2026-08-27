@@ -6,25 +6,32 @@ export interface TerminalSocketHandlers {
   onStatus: (state: 'connecting' | 'ready' | 'closed', detail?: string) => void;
   onHostKey: (msg: Extract<ServerMessage, { t: 'hostkey-prompt' }>) => void;
   onError: (message: string) => void;
+  onToken?: (token: string) => void;
 }
 
 /**
- * Thin wrapper around the /ws/terminal socket. Handles binary<->control framing
- * and a bounded auto-reconnect for transient network drops (the SSH session
- * itself does not survive a reconnect — the caller decides whether to re-open).
+ * Wrapper around /ws/terminal. On the first connect it sends `open`; the server
+ * replies with a resume token. If the socket drops unexpectedly it reconnects
+ * and sends `attach <token>` — the server kept the SSH session alive during a
+ * grace window and replays whatever output was missed.
  */
 export class TerminalSocket {
   private ws: WebSocket | null = null;
   private closedByUser = false;
   private sessionEnded = false;
   private reconnects = 0;
+  private token: string | null = null;
+  private lastSize: { cols: number; rows: number };
   private readonly open: Extract<ClientMessage, { t: 'open' }>;
 
   constructor(
     open: Omit<Extract<ClientMessage, { t: 'open' }>, 't'>,
     private readonly handlers: TerminalSocketHandlers,
+    initialToken?: string,
   ) {
     this.open = { t: 'open', ...open };
+    this.lastSize = { cols: open.cols, rows: open.rows };
+    this.token = initialToken ?? null;
   }
 
   connect(): void {
@@ -35,7 +42,11 @@ export class TerminalSocket {
 
     ws.onopen = () => {
       this.reconnects = 0;
-      this.send(this.open);
+      if (this.token) {
+        this.send({ t: 'attach', token: this.token, ...this.lastSize });
+      } else {
+        this.send(this.open);
+      }
     };
     ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
@@ -46,13 +57,13 @@ export class TerminalSocket {
     };
     ws.onclose = () => {
       if (this.closedByUser || this.sessionEnded) return;
-      if (this.reconnects >= 4) {
+      if (this.reconnects >= 6) {
         this.handlers.onStatus('closed', 'connection lost');
         return;
       }
       this.reconnects += 1;
       this.handlers.onStatus('connecting', `reconnecting (${this.reconnects})…`);
-      setTimeout(() => this.connect(), Math.min(1000 * 2 ** this.reconnects, 8000));
+      setTimeout(() => this.connect(), Math.min(500 * 2 ** this.reconnects, 8000));
     };
     ws.onerror = () => {
       /* surfaced via onclose */
@@ -61,9 +72,12 @@ export class TerminalSocket {
 
   private handleControl(msg: ServerMessage): void {
     switch (msg.t) {
+      case 'attached':
+        this.token = msg.token;
+        this.handlers.onToken?.(msg.token);
+        if (msg.resumed) this.handlers.onStatus('ready', 'reconnected');
+        break;
       case 'status':
-        // A server-sent "closed" is a real session end (SSH exited, host key
-        // rejected, timeout) — don't auto-reconnect into a brand-new shell.
         if (msg.state === 'closed') this.sessionEnded = true;
         this.handlers.onStatus(msg.state, msg.detail);
         break;
@@ -87,6 +101,7 @@ export class TerminalSocket {
   }
 
   resize(cols: number, rows: number): void {
+    this.lastSize = { cols, rows };
     this.send({ t: 'resize', cols, rows });
   }
 

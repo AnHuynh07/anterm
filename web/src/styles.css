@@ -433,6 +433,83 @@ code {
 .conn-group {
   margin-top: 20px;
 }
+
+/* dashboard */
+.stat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.stat {
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 13px;
+}
+.stat .stat-n {
+  font-size: 18px;
+  font-weight: 800;
+  margin-right: 4px;
+}
+.stat.up {
+  background: var(--up-bg);
+  color: var(--up-ink);
+}
+.stat.down {
+  background: var(--down-bg);
+  color: var(--down-ink);
+}
+.stat.neutral {
+  background: var(--neutral-bg);
+  color: var(--neutral-ink);
+}
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+.dash-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 12px;
+  cursor: pointer;
+  font: inherit;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.12s;
+}
+.dash-card:hover {
+  border-color: var(--primary);
+}
+.dash-card.up {
+  border-left-color: var(--up-solid);
+}
+.dash-card.down {
+  border-left-color: var(--down-solid);
+}
+.dash-card.unknown {
+  border-left-color: var(--border-strong);
+}
+.dash-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  margin-bottom: 6px;
+}
+.dash-card.up .dash-dot {
+  background: var(--up-solid);
+}
+.dash-card.down .dash-dot {
+  background: var(--down-solid);
+}
+.dash-name {
+  font-weight: 650;
+  margin-bottom: 2px;
+}
 .conn-group-head {
   font-weight: 700;
   font-size: 13px;
@@ -474,6 +551,9 @@ code {
   text-transform: uppercase;
   text-align: center;
   padding: 3px;
+}
+.conn-banner.broadcast {
+  background: var(--down-solid);
 }
 
 /* ---------- badges (UP / DOWN / vlan …) ---------- */

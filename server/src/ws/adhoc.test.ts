@@ -7,6 +7,7 @@ import { createDb } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { SessionService } from '../auth/session.js';
 import { createUser } from '../auth/users.js';
+import { ReachabilityMonitor } from '../health/monitor.js';
 import { buildApp } from '../http/app.js';
 import { attachTerminalWs } from './terminal.js';
 import { startSshFixture, type SshFixture } from '../../test/sshFixture.js';
@@ -26,7 +27,7 @@ beforeAll(async () => {
     APP_SECRET,
     '--db-url',
     ':memory:',
-    '--no-record',
+    '--no-record', '--resume-grace-sec', '0',
     '--ssh-host',
     '127.0.0.1',
     '--force-ssh',
@@ -38,7 +39,14 @@ beforeAll(async () => {
   const dbHandle = createDb(':memory:');
   runMigrations(dbHandle.sqlite);
   const sessions = new SessionService(dbHandle.db, 3_600_000);
-  const ctx: AppContext = { config, log, db: dbHandle.db, dbHandle, sessions };
+  const ctx: AppContext = {
+    config,
+    log,
+    db: dbHandle.db,
+    dbHandle,
+    sessions,
+    reachability: new ReachabilityMonitor(dbHandle.db, log, []),
+  };
   await createUser(dbHandle.db, { username: 'a', password: 'a-password', role: 'user' });
 
   app = await buildApp(ctx);

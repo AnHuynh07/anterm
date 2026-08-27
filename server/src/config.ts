@@ -51,6 +51,8 @@ const schema = z.object({
   sessionTtlHours: z.coerce.number().positive().default(12),
   sshIdleTimeoutMin: z.coerce.number().nonnegative().default(0), // 0 = disabled
   sshMaxDurationMin: z.coerce.number().nonnegative().default(0),
+  // keep an SSH session alive this long after the websocket drops, for resume-on-reconnect
+  resumeGraceSec: z.coerce.number().nonnegative().default(90),
 
   // audit
   record: bool.default(true), // record session I/O + command log
@@ -104,6 +106,7 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     .option('session-ttl-hours', { type: 'number' })
     .option('ssh-idle-timeout-min', { type: 'number', describe: 'Close idle SSH sessions after N minutes (0 = off)' })
     .option('ssh-max-duration-min', { type: 'number', describe: 'Hard cap on SSH session length (0 = off)' })
+    .option('resume-grace-sec', { type: 'number', describe: 'Keep SSH alive N s after a WS drop for resume (0 = off)' })
     .option('record', { type: 'boolean', describe: 'Record session I/O + command log (default true)' })
     .option('record-dir', { type: 'string', describe: 'Directory for .cast recordings' })
     .option('record-retention-days', { type: 'number', describe: 'Delete recordings older than N days (0 = keep)' })
@@ -139,6 +142,7 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     sessionTtlHours: parsed.sessionTtlHours ?? fileCfg.sessionTtlHours,
     sshIdleTimeoutMin: parsed.sshIdleTimeoutMin ?? fileCfg.sshIdleTimeoutMin,
     sshMaxDurationMin: parsed.sshMaxDurationMin ?? fileCfg.sshMaxDurationMin,
+    resumeGraceSec: parsed.resumeGraceSec ?? fileCfg.resumeGraceSec,
     record: parsed.record ?? fileCfg.record,
     recordDir: parsed.recordDir ?? fileCfg.recordDir,
     recordRetentionDays: parsed.recordRetentionDays ?? fileCfg.recordRetentionDays,

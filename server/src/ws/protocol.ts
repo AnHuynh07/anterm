@@ -24,6 +24,12 @@ export const clientMessage = z.discriminatedUnion('t', [
     cols: z.number().int().positive().max(1000).default(80),
     rows: z.number().int().positive().max(1000).default(24),
   }),
+  z.object({
+    t: z.literal('attach'),
+    token: z.string().min(8).max(128),
+    cols: z.number().int().positive().max(1000).default(80),
+    rows: z.number().int().positive().max(1000).default(24),
+  }),
   z.object({ t: z.literal('resize'), cols: z.number().int().positive().max(1000), rows: z.number().int().positive().max(1000) }),
   z.object({ t: z.literal('hostkey'), accept: z.boolean() }),
   z.object({ t: z.literal('ping') }),
@@ -33,6 +39,7 @@ export type ClientMessage = z.infer<typeof clientMessage>;
 
 export type ServerMessage =
   | { t: 'status'; state: 'connecting' | 'ready' | 'closed'; detail?: string }
+  | { t: 'attached'; token: string; resumed?: boolean }
   | {
       t: 'hostkey-prompt';
       hostport: string;
