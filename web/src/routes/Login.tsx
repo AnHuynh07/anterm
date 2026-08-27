@@ -38,7 +38,10 @@ export function LoginPage() {
   return (
     <div className="center-screen">
       <form className="card login-card" onSubmit={onSubmit}>
-        <h1>AnTerm</h1>
+        <h1>
+          <span className="brand-mark">❯_</span>
+          AnTerm
+        </h1>
         <p className="muted">Sign in to open SSH sessions</p>
         {import.meta.env.DEV && DEV_USER && (
           <p className="muted small">Dev credentials prefilled — set VITE_DEV_USER/PASSWORD to change.</p>

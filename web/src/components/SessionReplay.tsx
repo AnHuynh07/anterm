@@ -5,7 +5,7 @@ import { API_BASE } from '../lib/api';
 
 type Ev = [number, string];
 
-const THEME = { background: '#242329', foreground: '#e7e4dd', cursor: '#d9a1a7' };
+const THEME = { background: '#0f172a', foreground: '#e2e8f0', cursor: '#a5b4fc' };
 const SPEEDS = [1, 2, 4, 8];
 
 export function SessionReplay({ sessionId, target, onClose }: { sessionId: string; target: string; onClose: () => void }) {
