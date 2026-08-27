@@ -106,7 +106,7 @@ function SnippetsCard() {
               <tr key={s.id}>
                 <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{s.name}</td>
                 <td className="mono small">{s.command}</td>
-                <td className="row end">
+                <td className="actions">
                   <button className="btn danger sm" onClick={() => del.mutate(s.id)}>
                     Delete
                   </button>

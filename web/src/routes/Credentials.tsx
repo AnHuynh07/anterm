@@ -95,7 +95,7 @@ export function CredentialsPage() {
                     <Badge tone="neutral" >enable</Badge>
                   )}
                 </td>
-                <td className="row end gap">
+                <td className="actions">
                   <button className="btn ghost sm" onClick={() => setEditing(c)}>
                     Edit
                   </button>

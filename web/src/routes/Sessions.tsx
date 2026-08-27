@@ -97,7 +97,7 @@ export function SessionsPage() {
                     {bytes(s.bytesIn)} / {bytes(s.bytesOut)}
                   </td>
                   <td className="small">{s.commandCount || '—'}</td>
-                  <td className="row end gap">
+                  <td className="actions">
                     {s.hasRecording && (
                       <button className="btn primary sm" onClick={() => setReplay(s)}>
                         ▶ Replay

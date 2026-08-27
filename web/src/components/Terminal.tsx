@@ -16,10 +16,10 @@ import { Badge } from './Badge';
 const HL_KEY = 'anterm.highlight';
 
 const THEME = {
-  background: '#1b1e27',
-  foreground: '#e6e9ef',
-  cursor: '#f5e0dc',
-  selectionBackground: '#39415a',
+  background: '#242329',
+  foreground: '#e7e4dd',
+  cursor: '#d9a1a7',
+  selectionBackground: '#41414d',
 };
 
 interface Props {
