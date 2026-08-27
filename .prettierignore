@@ -1,0 +1,5 @@
+**/dist
+**/node_modules
+server/drizzle
+data
+package-lock.json

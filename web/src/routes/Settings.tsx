@@ -1,0 +1,72 @@
+import { FormEvent, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { api } from '../lib/api';
+import { useAuth } from '../hooks/useAuth';
+
+export function SettingsPage() {
+  const { user } = useAuth();
+  const [currentPassword, setCurrent] = useState('');
+  const [newPassword, setNew] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [done, setDone] = useState(false);
+
+  const change = useMutation({
+    mutationFn: () => api('/auth/password', { method: 'POST', body: { currentPassword, newPassword } }),
+    onSuccess: () => {
+      setDone(true);
+      setCurrent('');
+      setNew('');
+      setConfirm('');
+    },
+  });
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    setDone(false);
+    if (newPassword !== confirm) return;
+    change.mutate();
+  }
+
+  const mismatch = confirm.length > 0 && newPassword !== confirm;
+
+  return (
+    <div className="page narrow">
+      <h1>Settings</h1>
+      <div className="card">
+        <h2>Account</h2>
+        <dl className="kv">
+          <div>
+            <dt>Username</dt>
+            <dd>{user?.username}</dd>
+          </div>
+          <div>
+            <dt>Role</dt>
+            <dd>{user?.role}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <form className="card" onSubmit={submit}>
+        <h2>Change password</h2>
+        <label>
+          Current password
+          <input type="password" value={currentPassword} onChange={(e) => setCurrent(e.target.value)} required />
+        </label>
+        <label>
+          New password
+          <input type="password" value={newPassword} onChange={(e) => setNew(e.target.value)} minLength={8} required />
+        </label>
+        <label>
+          Confirm new password
+          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+        </label>
+        {mismatch && <div className="alert error">Passwords do not match</div>}
+        {change.error && <div className="alert error">{(change.error as Error).message}</div>}
+        {done && <div className="alert ok">Password changed. Other sessions were signed out.</div>}
+        <button className="btn primary" disabled={change.isPending || mismatch}>
+          {change.isPending ? 'Saving…' : 'Update password'}
+        </button>
+      </form>
+    </div>
+  );
+}

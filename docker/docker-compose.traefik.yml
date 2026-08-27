@@ -1,0 +1,48 @@
+# Example: AnTerm behind Traefik with automatic Let's Encrypt TLS.
+#   docker compose -f docker/docker-compose.traefik.yml up -d
+# Point DNS for ${ANTERM_DOMAIN} at this host first.
+
+services:
+  traefik:
+    image: traefik:v3.3
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:?set ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-acme:/letsencrypt
+    restart: unless-stopped
+
+  anterm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: anterm:local
+    environment:
+      ANTERM_APP_SECRET: ${ANTERM_APP_SECRET:?set ANTERM_APP_SECRET}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      ANTERM_TRUST_PROXY: "true"
+    volumes:
+      - anterm-data:/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.anterm.rule=Host(`${ANTERM_DOMAIN:?set ANTERM_DOMAIN}`)
+      - traefik.http.routers.anterm.entrypoints=websecure
+      - traefik.http.routers.anterm.tls.certresolver=le
+      - traefik.http.services.anterm.loadbalancer.server.port=3000
+    restart: unless-stopped
+
+volumes:
+  anterm-data:
+  traefik-acme:

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.claude/settings.local.json
+*.log
+.env
+.env.local
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+coverage/
+.DS_Store
+web/dist/
+server/dist/
+test-results/
+playwright-report/

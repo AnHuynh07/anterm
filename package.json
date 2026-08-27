@@ -1,0 +1,39 @@
+{
+  "name": "anterm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web SSH terminal in the browser (WeTTY-compatible core + connection manager)",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "bin": {
+    "anterm": "server/dist/index.js"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm -w server run dev",
+    "dev:web": "npm -w web run dev",
+    "build": "npm -w web run build && npm -w server run build",
+    "start": "node server/dist/index.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "npm -w server run test",
+    "db:generate": "npm -w server run db:generate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.68.0"
+  }
+}
