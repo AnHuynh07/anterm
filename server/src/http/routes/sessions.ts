@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { inArray } from 'drizzle-orm';
 import type { AppContext } from '../../context.js';
 import { AuditLog } from '../../audit.js';
+import { users } from '../../db/schema.js';
 import { requireAuth } from '../app.js';
 import type { AnyFastify } from '../types.js';
 
@@ -12,15 +14,27 @@ export function registerSessionRoutes(app: AnyFastify, ctx: AppContext): void {
   const audit = new AuditLog(ctx.db);
   const castPath = (rel: string) => join(ctx.config.recordingsDir, rel);
 
+  const sessionFor = (userId: string, admin: boolean, id: string) =>
+    admin ? audit.getSessionAny(id) : audit.getSession(userId, id);
+
   app.get('/sessions', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
-    const rows = await audit.list(user.id, 300);
+    const admin = user.role === 'admin';
+    const rows = admin ? await audit.listAll(300) : await audit.list(user.id, 300);
+    const names = admin
+      ? new Map(
+          (
+            await ctx.db.query.users.findMany({ where: inArray(users.id, [...new Set(rows.map((r) => r.userId))]) })
+          ).map((u) => [u.id, u.username]),
+        )
+      : null;
     return {
       sessions: rows.map((r) => ({
         id: r.id,
         connectionId: r.connectionId,
         target: r.target,
+        user: names?.get(r.userId),
         startedAt: r.startedAt,
         endedAt: r.endedAt,
         clientIp: r.clientIp,
@@ -36,7 +50,7 @@ export function registerSessionRoutes(app: AnyFastify, ctx: AppContext): void {
   app.get('/sessions/:id/recording', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
-    const s = await audit.getSession(user.id, (req.params as { id: string }).id);
+    const s = await sessionFor(user.id, user.role === 'admin', (req.params as { id: string }).id);
     if (!s?.recordingPath) return reply.code(404).send({ error: 'no recording for this session' });
     try {
       const body = await readFile(castPath(s.recordingPath), 'utf8');
@@ -49,7 +63,7 @@ export function registerSessionRoutes(app: AnyFastify, ctx: AppContext): void {
   app.get('/sessions/:id/recording.txt', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
-    const s = await audit.getSession(user.id, (req.params as { id: string }).id);
+    const s = await sessionFor(user.id, user.role === 'admin', (req.params as { id: string }).id);
     if (!s?.recordingPath) return reply.code(404).send({ error: 'no recording' });
     try {
       const raw = await readFile(castPath(s.recordingPath), 'utf8');
@@ -73,7 +87,9 @@ export function registerSessionRoutes(app: AnyFastify, ctx: AppContext): void {
   app.get('/sessions/:id/commands', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
-    const rows = await audit.sessionCommands(user.id, (req.params as { id: string }).id);
+    const id = (req.params as { id: string }).id;
+    const rows =
+      user.role === 'admin' ? await audit.sessionCommandsAny(id) : await audit.sessionCommands(user.id, id);
     return { commands: rows.map((c) => ({ id: c.id, ts: c.ts, text: c.text, target: c.target })) };
   });
 
@@ -81,7 +97,7 @@ export function registerSessionRoutes(app: AnyFastify, ctx: AppContext): void {
     const user = requireAuth(req, reply);
     if (!user) return;
     const q = String((req.query as { q?: string }).q ?? '');
-    const rows = await audit.searchCommands(user.id, q, 300);
+    const rows = user.role === 'admin' ? await audit.searchCommandsAll(q, 300) : await audit.searchCommands(user.id, q, 300);
     return { commands: rows.map((c) => ({ id: c.id, ts: c.ts, text: c.text, target: c.target, sessionId: c.sessionId })) };
   });
 }

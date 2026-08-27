@@ -9,6 +9,7 @@ import { SessionService } from '../auth/session.js';
 import { createUser } from '../auth/users.js';
 import { ConnectionRepo } from '../connections/repo.js';
 import { ReachabilityMonitor } from '../health/monitor.js';
+import { ActivityLog } from '../activity.js';
 import { buildApp } from '../http/app.js';
 import { attachTerminalWs } from './terminal.js';
 import { startSshFixture, type SshFixture } from '../../test/sshFixture.js';
@@ -45,6 +46,7 @@ beforeAll(async () => {
     dbHandle,
     sessions,
     reachability: new ReachabilityMonitor(dbHandle.db, log, []),
+    activity: new ActivityLog(dbHandle.db),
   };
   const user = await createUser(dbHandle.db, { username: 'r', password: 'r-password' });
   connectionId = (

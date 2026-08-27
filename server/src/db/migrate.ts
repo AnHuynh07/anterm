@@ -147,6 +147,37 @@ const migrations: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS snippets_user_idx ON snippets (user_id);
     `,
   },
+  {
+    id: '0007_rbac_and_activity',
+    sql: /* sql */ `
+      -- role model: admin / operator / viewer  (legacy 'user' becomes 'operator')
+      UPDATE users SET role = 'operator' WHERE role NOT IN ('admin', 'operator', 'viewer');
+
+      CREATE TABLE IF NOT EXISTS connection_shares (
+        id TEXT PRIMARY KEY,
+        connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        can_edit INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS connection_shares_conn_user_idx ON connection_shares (connection_id, user_id);
+      CREATE INDEX IF NOT EXISTS connection_shares_user_idx ON connection_shares (user_id);
+
+      CREATE TABLE IF NOT EXISTS audit_events (
+        id TEXT PRIMARY KEY,
+        ts INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        actor_id TEXT,
+        actor_name TEXT,
+        action TEXT NOT NULL,
+        target TEXT,
+        detail TEXT,
+        ip TEXT
+      );
+      CREATE INDEX IF NOT EXISTS audit_events_ts_idx ON audit_events (ts);
+      CREATE INDEX IF NOT EXISTS audit_events_actor_idx ON audit_events (actor_id, ts);
+      CREATE INDEX IF NOT EXISTS audit_events_action_idx ON audit_events (action, ts);
+    `,
+  },
 ];
 
 export function runMigrations(raw: Database.Database): void {

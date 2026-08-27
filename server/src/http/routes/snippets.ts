@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { AppContext } from '../../context.js';
 import type { AnyFastify } from '../types.js';
 import { SnippetRepo } from '../../snippets/repo.js';
-import { requireAuth } from '../app.js';
+import { requireAuth, requireWriter } from '../app.js';
 
 const body = z.object({
   name: z.string().min(1).max(60),
@@ -26,7 +26,7 @@ export function registerSnippetRoutes(app: AnyFastify, ctx: AppContext): void {
   });
 
   app.post('/snippets', async (req, reply) => {
-    const user = requireAuth(req, reply);
+    const user = requireWriter(req, reply);
     if (!user) return;
     const parsed = body.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid snippet' });
@@ -34,7 +34,7 @@ export function registerSnippetRoutes(app: AnyFastify, ctx: AppContext): void {
   });
 
   app.put('/snippets/:id', async (req, reply) => {
-    const user = requireAuth(req, reply);
+    const user = requireWriter(req, reply);
     if (!user) return;
     const parsed = body.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid snippet' });
@@ -44,7 +44,7 @@ export function registerSnippetRoutes(app: AnyFastify, ctx: AppContext): void {
   });
 
   app.delete('/snippets/:id', async (req, reply) => {
-    const user = requireAuth(req, reply);
+    const user = requireWriter(req, reply);
     if (!user) return;
     const ok = await repo.remove(user.id, (req.params as { id: string }).id);
     if (!ok) return reply.code(404).send({ error: 'snippet not found' });

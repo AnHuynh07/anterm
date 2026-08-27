@@ -9,9 +9,9 @@ export const users = sqliteTable(
     id: text('id').primaryKey(),
     username: text('username').notNull(),
     passwordHash: text('password_hash').notNull(),
-    role: text('role', { enum: ['admin', 'user'] })
+    role: text('role', { enum: ['admin', 'operator', 'viewer'] })
       .notNull()
-      .default('user'),
+      .default('operator'),
     disabled: integer('disabled', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull().default(now),
     updatedAt: integer('updated_at').notNull().default(now),
@@ -179,9 +179,52 @@ export const snippets = sqliteTable(
   (t) => ({ userIdx: index('snippets_user_idx').on(t.userId) }),
 );
 
+/** Grant another user access to a connection they don't own. */
+export const connectionShares = sqliteTable(
+  'connection_shares',
+  {
+    id: text('id').primaryKey(),
+    connectionId: text('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    canEdit: integer('can_edit', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at').notNull().default(now),
+  },
+  (t) => ({
+    connUserIdx: uniqueIndex('connection_shares_conn_user_idx').on(t.connectionId, t.userId),
+    userIdx: index('connection_shares_user_idx').on(t.userId),
+  }),
+);
+
+/** Append-only log of management actions (who changed what, logins, host-key trust). */
+export const auditEvents = sqliteTable(
+  'audit_events',
+  {
+    id: text('id').primaryKey(),
+    ts: integer('ts').notNull().default(now),
+    actorId: text('actor_id'), // nullable: failed logins have no resolved user
+    actorName: text('actor_name'), // denormalised, survives user deletion
+    action: text('action').notNull(),
+    target: text('target'),
+    detail: text('detail'), // small JSON blob
+    ip: text('ip'),
+  },
+  (t) => ({
+    tsIdx: index('audit_events_ts_idx').on(t.ts),
+    actorIdx: index('audit_events_actor_idx').on(t.actorId, t.ts),
+    actionIdx: index('audit_events_action_idx').on(t.action, t.ts),
+  }),
+);
+
+export type Role = (typeof users.$inferSelect)['role'];
 export type User = typeof users.$inferSelect;
 export type Connection = typeof connections.$inferSelect;
 export type Credential = typeof credentials.$inferSelect;
 export type SshSession = typeof sshSessions.$inferSelect;
 export type Command = typeof commands.$inferSelect;
 export type Snippet = typeof snippets.$inferSelect;
+export type ConnectionShare = typeof connectionShares.$inferSelect;
+export type AuditEvent = typeof auditEvents.$inferSelect;

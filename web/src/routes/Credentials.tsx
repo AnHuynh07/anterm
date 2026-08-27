@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { AuthType, Credential } from '../types';
+import { useAuth } from '../hooks/useAuth';
 import { Badge } from '../components/Badge';
 
 interface FormValue {
@@ -32,6 +33,7 @@ const empty: FormValue = {
 
 export function CredentialsPage() {
   const qc = useQueryClient();
+  const { canWrite, isAdmin } = useAuth();
   const [editing, setEditing] = useState<Credential | 'new' | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -61,9 +63,11 @@ export function CredentialsPage() {
     <div className="page">
       <div className="row between">
         <h1>Credentials</h1>
-        <button className="btn primary" onClick={() => setEditing('new')}>
-          New credential
-        </button>
+        {canWrite && (
+          <button className="btn primary" onClick={() => setEditing('new')}>
+            New credential
+          </button>
+        )}
       </div>
       <p className="muted">
         A reusable login profile — SSH auth plus optional in-band login automation. Attach one to many
@@ -85,6 +89,7 @@ export function CredentialsPage() {
                   <div className="muted small">
                     {c.sshUsername ? `ssh: ${c.sshUsername}` : 'ssh user set per-connection'}
                     {c.loginUsername ? ` · login: ${c.loginUsername}` : ''}
+                    {isAdmin && c.ownerName ? ` · owner: ${c.ownerName}` : ''}
                   </div>
                 </td>
                 <td>
@@ -96,18 +101,28 @@ export function CredentialsPage() {
                   )}
                 </td>
                 <td className="actions">
-                  <button className="btn ghost sm" onClick={() => setEditing(c)}>
-                    Edit
-                  </button>
-                  <button
-                    className="btn danger sm"
-                    onClick={() => {
-                      if (confirm(`Delete credential "${c.name}"? Connections using it fall back to their own settings.`))
-                        remove.mutate(c.id);
-                    }}
-                  >
-                    Delete
-                  </button>
+                  {canWrite ? (
+                    <>
+                      <button className="btn ghost sm" onClick={() => setEditing(c)}>
+                        Edit
+                      </button>
+                      <button
+                        className="btn danger sm"
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `Delete credential "${c.name}"? Connections using it fall back to their own settings.`,
+                            )
+                          )
+                            remove.mutate(c.id);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  ) : (
+                    <span className="muted small">read-only</span>
+                  )}
                 </td>
               </tr>
             ))}

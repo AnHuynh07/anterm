@@ -31,6 +31,8 @@ export interface CredentialDto {
   setupCommands: string | null;
   createdAt: number;
   updatedAt: number;
+  ownerId: string;
+  ownerName?: string;
 }
 
 export function credentialToDto(c: Credential): CredentialDto {
@@ -47,6 +49,7 @@ export function credentialToDto(c: Credential): CredentialDto {
     setupCommands: c.setupCommands ?? null,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
+    ownerId: c.userId,
   };
 }
 
@@ -67,10 +70,19 @@ export class CredentialRepo {
     });
   }
 
+  /** Every credential (admin only). */
+  listAll(): Promise<Credential[]> {
+    return this.db.query.credentials.findMany({ orderBy: [asc(credentials.name)] });
+  }
+
   get(userId: string, id: string): Promise<Credential | undefined> {
     return this.db.query.credentials.findFirst({
       where: and(eq(credentials.id, id), eq(credentials.userId, userId)),
     });
+  }
+
+  getAny(id: string): Promise<Credential | undefined> {
+    return this.db.query.credentials.findFirst({ where: eq(credentials.id, id) });
   }
 
   async create(userId: string, input: CredentialInput): Promise<Credential> {

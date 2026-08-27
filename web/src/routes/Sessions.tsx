@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { CommandRecord, SshSessionRecord } from '../types';
+import { useAuth } from '../hooks/useAuth';
 import { Badge, statusTone } from '../components/Badge';
 import { SessionReplay } from '../components/SessionReplay';
 
@@ -11,6 +12,7 @@ const bytes = (n: number) =>
   n < 1024 ? `${n} B` : n < 1_048_576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1_048_576).toFixed(1)} MB`;
 
 export function SessionsPage() {
+  const { isAdmin } = useAuth();
   const [replay, setReplay] = useState<SshSessionRecord | null>(null);
   const [cmdQuery, setCmdQuery] = useState('');
   const [showCmds, setShowCmds] = useState(false);
@@ -33,6 +35,7 @@ export function SessionsPage() {
           {showCmds ? 'Hide command log' : 'Command log'}
         </button>
       </div>
+      {isAdmin && <p className="muted small">Showing sessions for every user.</p>}
 
       {showCmds && (
         <div className="card">
@@ -71,6 +74,7 @@ export function SessionsPage() {
           <thead>
             <tr>
               <th>State</th>
+              {isAdmin && <th>User</th>}
               <th>Target</th>
               <th>Started</th>
               <th>Duration</th>
@@ -90,6 +94,7 @@ export function SessionsPage() {
                       {active ? 'Active' : tone === 'down' ? 'Error' : tone === 'warn' ? 'Warn' : 'Ended'}
                     </Badge>
                   </td>
+                  {isAdmin && <td className="small">{s.user ?? '—'}</td>}
                   <td className="mono">{s.target}</td>
                   <td className="small">{fmt(s.startedAt)}</td>
                   <td className="small">{dur(s)}</td>

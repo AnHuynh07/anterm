@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
@@ -8,6 +8,7 @@ import { AuthProvider } from './hooks/useAuth';
 import { TerminalTabsProvider } from './hooks/useTerminalTabs';
 import { RequireAuth } from './components/RequireAuth';
 import { Layout } from './components/Layout';
+import { useAuth } from './hooks/useAuth';
 import { LoginPage } from './routes/Login';
 import { DashboardPage } from './routes/Dashboard';
 import { ConnectionsPage } from './routes/Connections';
@@ -15,6 +16,13 @@ import { CredentialsPage } from './routes/Credentials';
 import { TerminalPage } from './routes/Terminal';
 import { SessionsPage } from './routes/Sessions';
 import { SettingsPage } from './routes/Settings';
+import { UsersPage } from './routes/Users';
+import { ActivityPage } from './routes/Activity';
+
+function AdminOnly({ children }: { children: ReactNode }) {
+  const { isAdmin } = useAuth();
+  return isAdmin ? <>{children}</> : <Navigate to="/dashboard" replace />;
+}
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
 
@@ -39,6 +47,8 @@ const router = createBrowserRouter(
         { path: 'terminal/:connectionId', element: <TerminalPage /> },
         { path: 'terminal', element: <TerminalPage /> },
         { path: 'sessions', element: <SessionsPage /> },
+        { path: 'users', element: <AdminOnly><UsersPage /></AdminOnly> },
+        { path: 'activity', element: <AdminOnly><ActivityPage /></AdminOnly> },
         { path: 'settings', element: <SettingsPage /> },
       ],
     },

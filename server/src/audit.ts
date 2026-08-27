@@ -62,15 +62,35 @@ export class AuditLog {
     });
   }
 
+  /** Every session (admin only). */
+  listAll(limit = 300): Promise<SshSessionRow[]> {
+    return this.db.query.sshSessions.findMany({
+      orderBy: [desc(sshSessions.startedAt)],
+      limit,
+    });
+  }
+
   getSession(userId: string, id: string): Promise<SshSessionRow | undefined> {
     return this.db.query.sshSessions.findFirst({
       where: and(eq(sshSessions.id, id), eq(sshSessions.userId, userId)),
     });
   }
 
+  getSessionAny(id: string): Promise<SshSessionRow | undefined> {
+    return this.db.query.sshSessions.findFirst({ where: eq(sshSessions.id, id) });
+  }
+
   sessionCommands(userId: string, sessionId: string): Promise<Command[]> {
     return this.db.query.commands.findMany({
       where: and(eq(commands.sessionId, sessionId), eq(commands.userId, userId)),
+      orderBy: [commands.ts],
+      limit: 1000,
+    });
+  }
+
+  sessionCommandsAny(sessionId: string): Promise<Command[]> {
+    return this.db.query.commands.findMany({
+      where: eq(commands.sessionId, sessionId),
       orderBy: [commands.ts],
       limit: 1000,
     });
@@ -82,6 +102,14 @@ export class AuditLog {
       : eq(commands.userId, userId);
     return this.db.query.commands.findMany({
       where,
+      orderBy: [desc(commands.ts)],
+      limit,
+    });
+  }
+
+  searchCommandsAll(q: string, limit = 300): Promise<Command[]> {
+    return this.db.query.commands.findMany({
+      where: q.trim() ? like(commands.text, `%${q.trim()}%`) : undefined,
       orderBy: [desc(commands.ts)],
       limit,
     });

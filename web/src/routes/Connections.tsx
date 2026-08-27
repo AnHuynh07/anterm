@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { AuthType, Connection, Credential } from '../types';
+import { useAuth } from '../hooks/useAuth';
 import { useTerminalTabs } from '../hooks/useTerminalTabs';
 import { ConnectionForm, type ConnectionFormValue } from '../components/ConnectionForm';
 import { QuickConnect } from '../components/QuickConnect';
 import { ImportExport } from '../components/ImportExport';
+import { ShareDialog } from '../components/ShareDialog';
 import { Badge, type BadgeTone } from '../components/Badge';
 import { COLOR_HEX } from '../components/colors';
 
@@ -17,8 +19,10 @@ const UNGROUPED = ' ungrouped';
 export function ConnectionsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { canWrite } = useAuth();
   const { openTab } = useTerminalTabs();
   const [editing, setEditing] = useState<Connection | 'new' | null>(null);
+  const [sharing, setSharing] = useState<Connection | null>(null);
   const [testResult, setTestResult] = useState<Record<string, TestState>>({});
   const [query, setQuery] = useState('');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -103,9 +107,11 @@ export function ConnectionsPage() {
           <button className="btn ghost" onClick={() => setShowIO((s) => !s)}>
             Import / Export
           </button>
-          <button className="btn primary" onClick={() => setEditing('new')}>
-            New connection
-          </button>
+          {canWrite && (
+            <button className="btn primary" onClick={() => setEditing('new')}>
+              New connection
+            </button>
+          )}
         </div>
       </div>
 
@@ -138,7 +144,11 @@ export function ConnectionsPage() {
 
       {isLoading && <p className="muted">Loading…</p>}
       {conns.length === 0 && !editing && !isLoading && (
-        <p className="muted">No saved connections yet. Create one to get started.</p>
+        <p className="muted">
+          {canWrite
+            ? 'No saved connections yet. Create one to get started.'
+            : 'No connections are shared with you yet.'}
+        </p>
       )}
       {conns.length > 0 && filtered.length === 0 && <p className="muted">No connections match the filter.</p>}
 
@@ -184,6 +194,14 @@ export function ConnectionsPage() {
                           auto-login
                         </div>
                       )}
+                      {c.relation === 'shared' && (
+                        <div className="muted small" title={`shared by ${c.ownerName ?? 'owner'}`}>
+                          shared{c.ownerName ? ` · ${c.ownerName}` : ''}
+                        </div>
+                      )}
+                      {c.relation === 'admin' && c.ownerName && (
+                        <div className="muted small">owner: {c.ownerName}</div>
+                      )}
                     </td>
                     <td>
                       {t ? (
@@ -198,23 +216,39 @@ export function ConnectionsPage() {
                       )}
                     </td>
                     <td className="actions">
-                      <button className="btn primary sm" onClick={() => open(c)}>
-                        Open
-                      </button>
-                      <button className="btn ghost sm" disabled={test.isPending} onClick={() => test.mutate(c.id)}>
-                        Test
-                      </button>
-                      <button className="btn ghost sm" onClick={() => setEditing(c)}>
-                        Edit
-                      </button>
-                      <button
-                        className="btn danger sm"
-                        onClick={() => {
-                          if (confirm(`Delete connection "${c.name}"?`)) remove.mutate(c.id);
-                        }}
-                      >
-                        Delete
-                      </button>
+                      {c.canOpen !== false && (
+                        <button className="btn primary sm" onClick={() => open(c)}>
+                          Open
+                        </button>
+                      )}
+                      {c.canOpen !== false && (
+                        <button className="btn ghost sm" disabled={test.isPending} onClick={() => test.mutate(c.id)}>
+                          Test
+                        </button>
+                      )}
+                      {c.canEdit !== false && (
+                        <button className="btn ghost sm" onClick={() => setEditing(c)}>
+                          Edit
+                        </button>
+                      )}
+                      {c.canShare && (
+                        <button className="btn ghost sm" onClick={() => setSharing(c)}>
+                          Share
+                        </button>
+                      )}
+                      {c.canDelete && (
+                        <button
+                          className="btn danger sm"
+                          onClick={() => {
+                            if (confirm(`Delete connection "${c.name}"?`)) remove.mutate(c.id);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                      {c.canOpen === false && c.canEdit === false && (
+                        <span className="muted small">read-only</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -223,6 +257,8 @@ export function ConnectionsPage() {
           </table>
         </div>
       ))}
+
+      {sharing && <ShareDialog connection={sharing} onClose={() => setSharing(null)} />}
 
       {editing && (
         <ConnectionForm

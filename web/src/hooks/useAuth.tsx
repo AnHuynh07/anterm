@@ -5,6 +5,9 @@ import type { AuthUser } from '../types';
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
+  isAdmin: boolean;
+  /** admin or operator — may create/edit and open sessions */
+  canWrite: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -42,7 +45,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, logout, refresh }),
+    () => ({
+      user,
+      loading,
+      isAdmin: user?.role === 'admin',
+      canWrite: user?.role === 'admin' || user?.role === 'operator',
+      login,
+      logout,
+      refresh,
+    }),
     [user, loading, login, logout, refresh],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

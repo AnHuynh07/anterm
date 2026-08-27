@@ -8,6 +8,8 @@ import type { User } from '../db/schema.js';
 import { AuditLog } from '../audit.js';
 import { ConnectionRepo } from '../connections/repo.js';
 import { CredentialRepo, resolveTarget } from '../connections/credentials.js';
+import { ShareRepo } from '../connections/shares.js';
+import { connAccess } from '../access.js';
 import { SshSession } from '../ssh/client.js';
 import { LocalSession } from '../ssh/local.js';
 import type { TerminalBackend } from '../ssh/backend.js';
@@ -42,6 +44,7 @@ function clientIp(req: IncomingMessage, trustProxy: boolean): string | undefined
 interface Deps {
   repo: ConnectionRepo;
   creds: CredentialRepo;
+  shares: ShareRepo;
   audit: AuditLog;
 }
 
@@ -69,6 +72,7 @@ export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => voi
   const deps: Deps = {
     repo: new ConnectionRepo(ctx.db, config.appSecret),
     creds: new CredentialRepo(ctx.db, config.appSecret),
+    shares: new ShareRepo(ctx.db),
     audit: new AuditLog(ctx.db),
   };
   const registry = new Map<string, LiveSession>();
@@ -195,7 +199,14 @@ class LiveSession {
       command: this.target.command,
       cols: this.cols,
       rows: this.rows,
-      verifyHostKey: makeHostKeyVerifier(this.ctx.db, this.user.id, prompt),
+      verifyHostKey: makeHostKeyVerifier(this.ctx.db, this.user.id, prompt, (info) =>
+        this.ctx.activity.record({
+          actor: { id: this.user.id, name: this.user.username, ip: [...this.clients][0]?.ip ?? null },
+          action: info.status === 'changed' ? 'hostkey.changed_accepted' : 'hostkey.trusted',
+          target: info.hostport,
+          detail: { keyType: info.keyType, fingerprint: info.fingerprint },
+        }),
+      ),
     });
     this.wire(ssh);
     ssh.connect();
@@ -518,6 +529,10 @@ class ClientConn {
     const { config } = this.ctx;
     let target: Target;
 
+    if (this.user.role === 'viewer') {
+      return this.fail('your account is read-only and cannot open terminal sessions');
+    }
+
     try {
       if (!msg.connectionId && !msg.adhoc && config.localShell) {
         target = {
@@ -529,9 +544,17 @@ class ClientConn {
           auditTarget: `local:${process.env.SHELL ?? 'shell'}`,
         };
       } else if (msg.connectionId) {
-        const conn = await this.deps.repo.get(this.user.id, msg.connectionId);
+        const conn = await this.deps.repo.getAny(msg.connectionId);
         if (!conn) return this.fail('connection not found');
-        const cred = conn.credentialId ? await this.deps.creds.get(this.user.id, conn.credentialId) : undefined;
+        const share =
+          this.user.role === 'admin' || conn.userId === this.user.id
+            ? null
+            : ((await this.deps.shares.getFor(conn.id, this.user.id)) ?? null);
+        if (!connAccess(this.user, conn.userId, share).canOpen) {
+          return this.fail('you do not have access to open this connection');
+        }
+        // credentials always resolve on the owner's behalf — a shared user never sees them
+        const cred = conn.credentialId ? await this.deps.creds.get(conn.userId, conn.credentialId) : undefined;
         const resolved = resolveTarget(conn, cred ?? null, config.appSecret);
         const username = conn.sshUsername || resolved.credSshUsername || '';
         if (!username) return this.fail('no SSH username — set one on the connection or its credential');

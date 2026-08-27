@@ -24,7 +24,13 @@ export function registerAuthRoutes(app: AnyFastify, ctx: AppContext): void {
       if (!parsed.success) return reply.code(400).send({ error: 'invalid credentials payload' });
 
       const user = await authenticate(ctx.db, parsed.data.username, parsed.data.password);
-      if (!user) return reply.code(401).send({ error: 'invalid username or password' });
+      if (!user) {
+        ctx.activity.record({
+          actor: { id: null, name: parsed.data.username.toLowerCase().slice(0, 64), ip: req.ip },
+          action: 'auth.login_failed',
+        });
+        return reply.code(401).send({ error: 'invalid username or password' });
+      }
 
       const session = await ctx.sessions.create(user.id, {
         userAgent: req.headers['user-agent'],
@@ -32,11 +38,21 @@ export function registerAuthRoutes(app: AnyFastify, ctx: AppContext): void {
       });
       reply.setCookie(SID_COOKIE, session.sessionId, sessionCookieOptions(ctx.config));
       reply.setCookie(CSRF_COOKIE, session.csrf, csrfCookieOptions(ctx.config));
+      ctx.activity.record({
+        actor: { id: user.id, name: user.username, ip: req.ip },
+        action: 'auth.login',
+      });
       return { user: publicUser(user), csrf: session.csrf };
     },
   );
 
   app.post('/auth/logout', async (req, reply) => {
+    if (req.authUser) {
+      ctx.activity.record({
+        actor: { id: req.authUser.id, name: req.authUser.username, ip: req.ip },
+        action: 'auth.logout',
+      });
+    }
     if (req.sessionId) await ctx.sessions.destroy(req.sessionId);
     reply.clearCookie(SID_COOKIE, clearCookieOptions(ctx.config));
     reply.clearCookie(CSRF_COOKIE, clearCookieOptions(ctx.config));
@@ -60,6 +76,10 @@ export function registerAuthRoutes(app: AnyFastify, ctx: AppContext): void {
 
     await setPassword(ctx.db, user.id, parsed.data.newPassword);
     await ctx.sessions.destroyAllForUser(user.id, req.sessionId ?? undefined);
+    ctx.activity.record({
+      actor: { id: user.id, name: user.username, ip: req.ip },
+      action: 'auth.password_changed',
+    });
     return { ok: true };
   });
 }

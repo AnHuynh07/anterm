@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import { inArray } from 'drizzle-orm';
 import type { AppContext } from '../../context.js';
 import type { AnyFastify } from '../types.js';
+import { users } from '../../db/schema.js';
 import { CredentialRepo, credentialToDto, type CredentialInput } from '../../connections/credentials.js';
-import { requireAuth } from '../app.js';
+import { auditActor, requireAuth, requireWriter } from '../app.js';
 
 const body = z.object({
   name: z.string().min(1).max(80),
@@ -22,16 +24,26 @@ export function registerCredentialRoutes(app: AnyFastify, ctx: AppContext): void
   app.get('/credentials', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
+    if (user.role === 'admin') {
+      const rows = await repo.listAll();
+      const names = new Map(
+        (await ctx.db.query.users.findMany({ where: inArray(users.id, [...new Set(rows.map((r) => r.userId))]) })).map(
+          (u) => [u.id, u.username],
+        ),
+      );
+      return { credentials: rows.map((c) => ({ ...credentialToDto(c), ownerName: names.get(c.userId) })) };
+    }
     return { credentials: (await repo.list(user.id)).map(credentialToDto) };
   });
 
   app.post('/credentials', async (req, reply) => {
-    const user = requireAuth(req, reply);
+    const user = requireWriter(req, reply);
     if (!user) return;
     const parsed = body.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid payload' });
     try {
       const c = await repo.create(user.id, parsed.data as CredentialInput);
+      ctx.activity.record({ actor: auditActor(req), action: 'credential.create', target: c.name });
       return reply.code(201).send({ credential: credentialToDto(c) });
     } catch (err) {
       return reply.code(409).send({ error: uniqueName(err) });
@@ -39,14 +51,18 @@ export function registerCredentialRoutes(app: AnyFastify, ctx: AppContext): void
   });
 
   app.put('/credentials/:id', async (req, reply) => {
-    const user = requireAuth(req, reply);
+    const user = requireWriter(req, reply);
     if (!user) return;
     const { id } = req.params as { id: string };
     const parsed = body.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid payload' });
+
+    const owned = (await repo.get(user.id, id)) ?? (user.role === 'admin' ? await repo.getAny(id) : undefined);
+    if (!owned) return reply.code(404).send({ error: 'credential not found' });
     try {
-      const c = await repo.update(user.id, id, parsed.data as CredentialInput);
+      const c = await repo.update(owned.userId, id, parsed.data as CredentialInput);
       if (!c) return reply.code(404).send({ error: 'credential not found' });
+      ctx.activity.record({ actor: auditActor(req), action: 'credential.update', target: c.name });
       return { credential: credentialToDto(c) };
     } catch (err) {
       return reply.code(409).send({ error: uniqueName(err) });
@@ -54,11 +70,13 @@ export function registerCredentialRoutes(app: AnyFastify, ctx: AppContext): void
   });
 
   app.delete('/credentials/:id', async (req, reply) => {
-    const user = requireAuth(req, reply);
+    const user = requireWriter(req, reply);
     if (!user) return;
     const { id } = req.params as { id: string };
-    const ok = await repo.remove(user.id, id);
-    if (!ok) return reply.code(404).send({ error: 'credential not found' });
+    const owned = (await repo.get(user.id, id)) ?? (user.role === 'admin' ? await repo.getAny(id) : undefined);
+    if (!owned) return reply.code(404).send({ error: 'credential not found' });
+    await repo.remove(owned.userId, id);
+    ctx.activity.record({ actor: auditActor(req), action: 'credential.delete', target: owned.name });
     return { ok: true };
   });
 }

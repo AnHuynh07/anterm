@@ -4,6 +4,7 @@ import { WebSocket } from 'ws';
 import { loadConfig } from '../config.js';
 import type { AppContext } from '../context.js';
 import { ReachabilityMonitor } from '../health/monitor.js';
+import { ActivityLog } from '../activity.js';
 import { createDb } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { SessionService } from '../auth/session.js';
@@ -38,6 +39,7 @@ beforeAll(async () => {
     dbHandle,
     sessions,
     reachability: new ReachabilityMonitor(dbHandle.db, log, []),
+    activity: new ActivityLog(dbHandle.db),
   };
 
   const user = await createUser(dbHandle.db, { username: 'e2e', password: 'e2e-password', role: 'admin' });

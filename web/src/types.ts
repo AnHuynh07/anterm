@@ -1,7 +1,41 @@
+export type Role = 'admin' | 'operator' | 'viewer';
+
 export interface AuthUser {
   id: string;
   username: string;
-  role: 'admin' | 'user';
+  role: Role;
+}
+
+export interface ManagedUser {
+  id: string;
+  username: string;
+  role: Role;
+  disabled: boolean;
+  createdAt: number;
+  activeSessions: number;
+  isSelf: boolean;
+}
+
+export interface PickableUser {
+  id: string;
+  username: string;
+  role: Role;
+}
+
+export interface AuditEvent {
+  id: string;
+  ts: number;
+  actor: string | null;
+  action: string;
+  target: string | null;
+  detail: unknown;
+  ip: string | null;
+}
+
+export interface ConnectionShareEntry {
+  userId: string;
+  username: string;
+  canEdit: boolean;
 }
 
 export type AuthType = 'password' | 'key' | 'agent';
@@ -20,6 +54,8 @@ export interface Credential {
   setupCommands: string | null;
   createdAt: number;
   updatedAt: number;
+  ownerId?: string;
+  ownerName?: string;
 }
 
 export interface Connection {
@@ -43,6 +79,13 @@ export interface Connection {
   antiIdleSeconds: number;
   createdAt: number;
   updatedAt: number;
+  ownerId: string;
+  ownerName?: string;
+  relation?: 'admin' | 'owner' | 'shared' | 'none';
+  canEdit?: boolean;
+  canOpen?: boolean;
+  canDelete?: boolean;
+  canShare?: boolean;
 }
 
 export interface Snippet {
@@ -73,6 +116,7 @@ export interface SshSessionRecord {
   hasRecording?: boolean;
   commandCount?: number;
   target: string;
+  user?: string;
   startedAt: number;
   endedAt: number | null;
   clientIp: string | null;

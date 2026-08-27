@@ -20,6 +20,7 @@ export function makeHostKeyVerifier(
   db: Db,
   userId: string | null,
   prompt: HostKeyPrompt,
+  onTrust?: (info: HostKeyInfo & { status: HostKeyStatus }) => void,
 ): HostKeyVerifier {
   return async (info: HostKeyInfo): Promise<boolean> => {
     const existing = await db.query.hostKeys.findFirst({ where: eq(hostKeys.hostport, info.hostport) });
@@ -44,6 +45,7 @@ export function makeHostKeyVerifier(
         addedByUserId: userId,
       });
     }
+    onTrust?.({ ...info, status });
     return true;
   };
 }

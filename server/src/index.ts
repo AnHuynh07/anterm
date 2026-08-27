@@ -9,6 +9,7 @@ import { runMigrations } from './db/migrate.js';
 import { bootstrapAdmin } from './auth/users.js';
 import { SessionService } from './auth/session.js';
 import { AuditLog } from './audit.js';
+import { ActivityLog } from './activity.js';
 import { ReachabilityMonitor } from './health/monitor.js';
 import { buildApp } from './http/app.js';
 import { attachTerminalWs } from './ws/terminal.js';
@@ -30,7 +31,8 @@ async function main(): Promise<void> {
   const reachability = new ReachabilityMonitor(dbHandle.db, log, config.allowHosts);
   reachability.start();
 
-  const ctx: AppContext = { config, log, db: dbHandle.db, dbHandle, sessions, reachability };
+  const activity = new ActivityLog(dbHandle.db, log);
+  const ctx: AppContext = { config, log, db: dbHandle.db, dbHandle, sessions, reachability, activity };
 
   const app = await buildApp(ctx);
   const detachWs = attachTerminalWs(app.server, ctx);
@@ -54,6 +56,10 @@ async function main(): Promise<void> {
     await audit.deleteSessions(ids);
     for (const p of paths) await rm(join(config.recordingsDir, p), { force: true });
     log.info({ removed: ids.length }, 'audit retention sweep');
+    activity.record({
+      action: 'session.recordings_pruned',
+      detail: { sessions: ids.length, files: paths.length, olderThanDays: config.recordRetentionDays },
+    });
   };
   void retention().catch((err) => log.warn({ err }, 'retention sweep failed'));
   const retentionTimer = setInterval(() => void retention().catch(() => {}), 6 * 3600_000);

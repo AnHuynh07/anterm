@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, or } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { connections, type Connection } from '../db/schema.js';
 import { encryptSecret, maybeDecrypt } from '../crypto/secrets.js';
@@ -75,6 +75,14 @@ export interface ConnectionDto {
   antiIdleSeconds: number;
   createdAt: number;
   updatedAt: number;
+  ownerId: string;
+  /** filled in by the route (RBAC) */
+  ownerName?: string;
+  relation?: 'admin' | 'owner' | 'shared' | 'none';
+  canEdit?: boolean;
+  canOpen?: boolean;
+  canDelete?: boolean;
+  canShare?: boolean;
 }
 
 export function toDto(c: Connection): ConnectionDto {
@@ -99,6 +107,7 @@ export function toDto(c: Connection): ConnectionDto {
     antiIdleSeconds: c.antiIdleSeconds,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
+    ownerId: c.userId,
   };
 }
 
@@ -119,6 +128,22 @@ export class ConnectionRepo {
     return this.db.query.connections.findFirst({
       where: and(eq(connections.id, id), eq(connections.userId, userId)),
     });
+  }
+
+  /** Ignores ownership — callers must check access first. */
+  getAny(id: string): Promise<Connection | undefined> {
+    return this.db.query.connections.findFirst({ where: eq(connections.id, id) });
+  }
+
+  /** Connections an actor may see: all (admin), else owned + explicitly shared. */
+  listVisible(opts: { userId: string; admin: boolean; sharedIds: string[] }): Promise<Connection[]> {
+    if (opts.admin) {
+      return this.db.query.connections.findMany({ orderBy: [desc(connections.updatedAt)] });
+    }
+    const where = opts.sharedIds.length
+      ? or(eq(connections.userId, opts.userId), inArray(connections.id, opts.sharedIds))
+      : eq(connections.userId, opts.userId);
+    return this.db.query.connections.findMany({ where, orderBy: [desc(connections.updatedAt)] });
   }
 
   private enc(v: string | null | undefined): string | null {
@@ -153,8 +178,13 @@ export class ConnectionRepo {
     return created;
   }
 
-  async update(userId: string, id: string, input: ConnectionInput): Promise<Connection | undefined> {
-    const existing = await this.get(userId, id);
+  update(userId: string, id: string, input: ConnectionInput): Promise<Connection | undefined> {
+    return this.get(userId, id).then((existing) => (existing ? this.updateAny(id, input) : undefined));
+  }
+
+  /** Ignores ownership — callers must check `canEdit` first. */
+  async updateAny(id: string, input: ConnectionInput): Promise<Connection | undefined> {
+    const existing = await this.getAny(id);
     if (!existing) return undefined;
 
     const patch: Partial<Connection> = {
@@ -180,11 +210,18 @@ export class ConnectionRepo {
     if (input.enablePassword !== undefined) patch.enablePasswordEnc = this.enc(input.enablePassword);
 
     await this.db.update(connections).set(patch).where(eq(connections.id, id));
-    return this.get(userId, id);
+    return this.getAny(id);
   }
 
   async remove(userId: string, id: string): Promise<boolean> {
     const existing = await this.get(userId, id);
+    if (!existing) return false;
+    return this.removeAny(id);
+  }
+
+  /** Ignores ownership — callers must check `canDelete` first. */
+  async removeAny(id: string): Promise<boolean> {
+    const existing = await this.getAny(id);
     if (!existing) return false;
     await this.db.delete(connections).where(eq(connections.id, id));
     return true;

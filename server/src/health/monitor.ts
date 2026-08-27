@@ -1,6 +1,6 @@
 import { createConnection } from 'node:net';
 import type { Logger } from 'pino';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { connections } from '../db/schema.js';
 
@@ -81,6 +81,14 @@ export class ReachabilityMonitor {
     const rows = await this.db.select().from(connections).where(eq(connections.userId, userId));
     await this.runBatch(rows.map((r) => ({ id: r.id, host: r.host, port: r.port })));
     return this.snapshot(rows.map((r) => r.id));
+  }
+
+  /** Re-check a specific set of connections (by id) and return fresh results. */
+  async checkByIds(ids: string[]): Promise<Record<string, ReachResult>> {
+    if (!ids.length) return {};
+    const rows = await this.db.select().from(connections).where(inArray(connections.id, ids));
+    await this.runBatch(rows.map((r) => ({ id: r.id, host: r.host, port: r.port })));
+    return this.snapshot(ids);
   }
 
   private async runBatch(targets: { id: string; host: string; port: number }[]): Promise<void> {

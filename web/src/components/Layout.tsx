@@ -3,18 +3,21 @@ import { useAuth } from '../hooks/useAuth';
 import { Icon } from './icons';
 
 const NAV = [
-  ['/dashboard', 'Dashboard', 'dashboard'],
-  ['/connections', 'Connections', 'connections'],
-  ['/credentials', 'Credentials', 'credentials'],
-  ['/terminal', 'Terminal', 'terminal'],
-  ['/sessions', 'History', 'history'],
-  ['/settings', 'Settings', 'settings'],
+  ['/dashboard', 'Dashboard', 'dashboard', false],
+  ['/connections', 'Connections', 'connections', false],
+  ['/credentials', 'Credentials', 'credentials', false],
+  ['/terminal', 'Terminal', 'terminal', false],
+  ['/sessions', 'History', 'history', false],
+  ['/users', 'Users', 'connections', true],
+  ['/activity', 'Activity', 'history', true],
+  ['/settings', 'Settings', 'settings', false],
 ] as const;
 
 const navClass = ({ isActive }: { isActive: boolean }) => (isActive ? 'active' : undefined);
+const ROLE_LABEL: Record<string, string> = { admin: 'Admin', operator: 'Operator', viewer: 'Viewer' };
 
 export function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
 
   return (
@@ -25,7 +28,7 @@ export function Layout() {
           AnTerm
         </div>
         <nav>
-          {NAV.map(([to, label, icon]) => (
+          {NAV.filter(([, , , adminOnly]) => !adminOnly || isAdmin).map(([to, label, icon]) => (
             <NavLink key={to} to={to} className={navClass}>
               <Icon name={icon} />
               <span>{label}</span>
@@ -35,7 +38,10 @@ export function Layout() {
         <div className="sidebar-foot">
           <div className="sidebar-user">
             <span className="avatar">{user?.username?.[0]?.toUpperCase() ?? '?'}</span>
-            <span className="uname">{user?.username}</span>
+            <span className="uname">
+              {user?.username}
+              <span className="role-tag">{ROLE_LABEL[user?.role ?? ''] ?? user?.role}</span>
+            </span>
           </div>
           <button
             className="btn ghost sm signout"

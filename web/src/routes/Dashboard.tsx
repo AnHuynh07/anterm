@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { Connection, ReachResult } from '../types';
+import { useAuth } from '../hooks/useAuth';
 import { useTerminalTabs } from '../hooks/useTerminalTabs';
 
 const UNGROUPED = 'Ungrouped';
@@ -10,6 +11,7 @@ const UNGROUPED = 'Ungrouped';
 export function DashboardPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { canWrite } = useAuth();
   const { openTab } = useTerminalTabs();
 
   const { data: connData } = useQuery({
@@ -53,6 +55,7 @@ export function DashboardPage() {
   }, [conns]);
 
   function open(c: Connection) {
+    if (c.canOpen === false || !canWrite) return;
     openTab({ connectionId: c.id, title: c.name, color: c.color ?? undefined });
     navigate('/terminal');
   }
@@ -93,8 +96,16 @@ export function DashboardPage() {
             {list.map((c) => {
               const r = health[c.id];
               const st = r?.status ?? 'unknown';
+              const openable = canWrite && c.canOpen !== false;
               return (
-                <button key={c.id} className={`dash-card ${st}`} onClick={() => open(c)} title={r?.detail ?? ''}>
+                <button
+                  key={c.id}
+                  className={`dash-card ${st}`}
+                  onClick={() => open(c)}
+                  disabled={!openable}
+                  style={openable ? undefined : { cursor: 'default' }}
+                  title={r?.detail ?? ''}
+                >
                   <div className="dash-dot" />
                   <div className="dash-name">{c.name}</div>
                   <div className="mono small muted">

@@ -16,6 +16,8 @@ import { registerCredentialRoutes } from './routes/credentials.js';
 import { registerSnippetRoutes } from './routes/snippets.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerHealthRoutes } from './routes/health.js';
+import { registerUserRoutes } from './routes/users.js';
+import { registerActivityRoutes } from './routes/activity.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -91,6 +93,8 @@ export async function buildApp(ctx: AppContext): Promise<AnyFastify> {
   const api = async (scoped: AnyFastify): Promise<void> => {
     registerHealthRoutes(scoped, ctx);
     registerAuthRoutes(scoped, ctx);
+    registerUserRoutes(scoped, ctx);
+    registerActivityRoutes(scoped, ctx);
     registerCredentialRoutes(scoped, ctx);
     registerSnippetRoutes(scoped, ctx);
     registerConnectionRoutes(scoped, ctx);
@@ -112,6 +116,26 @@ export function requireAuth(req: FastifyRequest, reply: FastifyReply): User | un
     return undefined;
   }
   return req.authUser;
+}
+
+/** Authenticated and holding one of `roles` — else 403. */
+export function requireRole(req: FastifyRequest, reply: FastifyReply, ...roles: User['role'][]): User | undefined {
+  const user = requireAuth(req, reply);
+  if (!user) return undefined;
+  if (!roles.includes(user.role)) {
+    reply.code(403).send({ error: 'insufficient permissions' });
+    return undefined;
+  }
+  return user;
+}
+
+/** Authenticated and able to make changes (admin or operator, never viewer). */
+export function requireWriter(req: FastifyRequest, reply: FastifyReply): User | undefined {
+  return requireRole(req, reply, 'admin', 'operator');
+}
+
+export function auditActor(req: FastifyRequest): { id: string | null; name: string | null; ip: string | null } {
+  return { id: req.authUser?.id ?? null, name: req.authUser?.username ?? null, ip: req.ip ?? null };
 }
 
 async function registerSpa(app: AnyFastify, isDev: boolean): Promise<void> {
