@@ -10,6 +10,7 @@ import { RequireAuth } from './components/RequireAuth';
 import { Layout } from './components/Layout';
 import { LoginPage } from './routes/Login';
 import { ConnectionsPage } from './routes/Connections';
+import { CredentialsPage } from './routes/Credentials';
 import { TerminalPage } from './routes/Terminal';
 import { SessionsPage } from './routes/Sessions';
 import { SettingsPage } from './routes/Settings';
@@ -32,6 +33,7 @@ const router = createBrowserRouter(
       children: [
         { index: true, element: <Navigate to="/connections" replace /> },
         { path: 'connections', element: <ConnectionsPage /> },
+        { path: 'credentials', element: <CredentialsPage /> },
         { path: 'terminal/:connectionId', element: <TerminalPage /> },
         { path: 'terminal', element: <TerminalPage /> },
         { path: 'sessions', element: <SessionsPage /> },

@@ -1,6 +1,8 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { Server, type Connection } from 'ssh2';
+import ssh2, { type Connection } from 'ssh2';
+
+const { Server } = ssh2;
 
 export interface SshFixture {
   port: number;
@@ -15,7 +17,11 @@ export interface SshFixture {
  * password credential and backs shells/execs with `/bin/sh` (no real PTY, but
  * enough for `echo` round-trips and window-change signalling).
  */
-export async function startSshFixture(opts?: { username?: string; password?: string }): Promise<SshFixture> {
+export async function startSshFixture(opts?: {
+  username?: string;
+  password?: string;
+  port?: number;
+}): Promise<SshFixture> {
   const username = opts?.username ?? 'demo';
   const password = opts?.password ?? 'demo';
 
@@ -69,7 +75,7 @@ export async function startSshFixture(opts?: { username?: string; password?: str
   });
 
   const port: number = await new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port));
+    server.listen(opts?.port ?? 0, '127.0.0.1', () => resolve((server.address() as { port: number }).port));
   });
 
   return {

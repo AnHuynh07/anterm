@@ -1,3 +1,6 @@
+import { mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { pino } from 'pino';
 import { loadConfig } from './config.js';
 import type { AppContext } from './context.js';
@@ -5,6 +8,7 @@ import { createDb } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { bootstrapAdmin } from './auth/users.js';
 import { SessionService } from './auth/session.js';
+import { AuditLog } from './audit.js';
 import { buildApp } from './http/app.js';
 import { attachTerminalWs } from './ws/terminal.js';
 
@@ -17,6 +21,7 @@ async function main(): Promise<void> {
 
   const dbHandle = createDb(config.dbUrl);
   runMigrations(dbHandle.sqlite);
+  if (config.record) mkdirSync(config.recordingsDir, { recursive: true });
 
   const sessions = new SessionService(dbHandle.db, config.sessionTtlHours * 3_600_000);
   await bootstrapAdmin(dbHandle.db, log, { username: config.adminUser, password: config.adminPassword });
@@ -36,9 +41,24 @@ async function main(): Promise<void> {
   const sweep = setInterval(() => void sessions.sweepExpired().catch(() => {}), 15 * 60_000);
   sweep.unref();
 
+  // audit retention: drop old sessions/commands + their .cast files
+  const audit = new AuditLog(dbHandle.db);
+  const retention = async (): Promise<void> => {
+    if (config.recordRetentionDays <= 0) return;
+    const { ids, paths } = await audit.expiredRecordings(config.recordRetentionDays);
+    if (!ids.length) return;
+    await audit.deleteSessions(ids);
+    for (const p of paths) await rm(join(config.recordingsDir, p), { force: true });
+    log.info({ removed: ids.length }, 'audit retention sweep');
+  };
+  void retention().catch((err) => log.warn({ err }, 'retention sweep failed'));
+  const retentionTimer = setInterval(() => void retention().catch(() => {}), 6 * 3600_000);
+  retentionTimer.unref();
+
   const shutdown = async (signal: string): Promise<void> => {
     log.info({ signal }, 'shutting down');
     clearInterval(sweep);
+    clearInterval(retentionTimer);
     detachWs();
     await app.close();
     dbHandle.close();

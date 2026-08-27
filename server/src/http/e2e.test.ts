@@ -25,7 +25,7 @@ let csrf: string;
 beforeAll(async () => {
   fx = await startSshFixture();
 
-  const config = loadConfig(['--app-secret', APP_SECRET, '--db-url', ':memory:']);
+  const config = loadConfig(['--app-secret', APP_SECRET, '--db-url', ':memory:', '--no-record']);
   const log = pino({ level: 'silent' });
   const dbHandle = createDb(':memory:');
   runMigrations(dbHandle.sqlite);

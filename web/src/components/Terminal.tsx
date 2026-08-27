@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
-import { WebglAddon } from '@xterm/addon-webgl';
 import { TerminalSocket } from '../lib/terminalSocket';
-import type { AdhocTarget, HostKeyPromptMsg } from '../types';
+import { colorizeChunk } from '../lib/highlight';
+import { api } from '../lib/api';
+import type { AdhocTarget, HostKeyPromptMsg, Snippet } from '../types';
 import { HostKeyPrompt } from './HostKeyPrompt';
+import { Badge } from './Badge';
+
+const HL_KEY = 'anterm.highlight';
 
 const THEME = {
-  background: '#0b0e14',
-  foreground: '#cdd6f4',
+  background: '#1b1e27',
+  foreground: '#e6e9ef',
   cursor: '#f5e0dc',
-  selectionBackground: '#3a3f58',
+  selectionBackground: '#39415a',
 };
 
 interface Props {
@@ -27,11 +32,47 @@ export function TerminalView({ connectionId, adhoc, onExit }: Props) {
   const [status, setStatus] = useState<'connecting' | 'ready' | 'closed'>('connecting');
   const [statusDetail, setStatusDetail] = useState<string>();
   const [hostKey, setHostKey] = useState<HostKeyPromptMsg | null>(null);
+  const [highlight, setHighlight] = useState(() => {
+    try {
+      return localStorage.getItem(HL_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [showSnippets, setShowSnippets] = useState(false);
+  const [pendingSend, setPendingSend] = useState<{ text: string; exec: boolean } | null>(null);
   const socketRef = useRef<TerminalSocket | null>(null);
+  const highlightRef = useRef(highlight);
+
+  const { data: snippetData } = useQuery({
+    queryKey: ['snippets'],
+    queryFn: () => api<{ snippets: Snippet[] }>('/snippets'),
+  });
+
+  /** Send text to the session — multi-line goes through a paste-guard confirm. */
+  function sendToSession(text: string, exec: boolean) {
+    if (/\r|\n/.test(text) && text.replace(/\s+$/, '').length > 0) {
+      setPendingSend({ text, exec });
+    } else {
+      socketRef.current?.sendData(exec ? text.replace(/[\r\n]+$/, '') + '\r' : text);
+    }
+  }
+
+  useEffect(() => {
+    highlightRef.current = highlight;
+    try {
+      localStorage.setItem(HL_KEY, highlight ? '1' : '0');
+    } catch {
+      /* private mode */
+    }
+  }, [highlight]);
 
   useEffect(() => {
     const el = hostRef.current;
     if (!el) return;
+
+    let disposed = false;
+    const cleanups: Array<() => void> = [];
 
     const term = new Terminal({
       fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
@@ -46,66 +87,142 @@ export function TerminalView({ connectionId, adhoc, onExit }: Props) {
     term.loadAddon(new WebLinksAddon());
     term.loadAddon(new SearchAddon());
     term.loadAddon(new ClipboardAddon());
-    term.open(el);
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      /* webgl unavailable — canvas renderer is fine */
-    }
-    fit.fit();
 
-    const socket = new TerminalSocket(
-      { connectionId, adhoc, cols: term.cols, rows: term.rows },
-      {
-        onData: (chunk) => term.write(chunk),
-        onStatus: (state, detail) => {
-          setStatus(state);
-          setStatusDetail(detail);
-          if (state === 'ready') term.focus();
-          if (state === 'closed') {
-            term.write(`\r\n\x1b[90m— session closed${detail ? `: ${detail}` : ''} —\x1b[0m\r\n`);
-            onExit?.(detail ?? 'closed');
-          }
-        },
-        onHostKey: (msg) => setHostKey(msg),
-        onError: (message) => term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`),
-      },
-    );
-    socketRef.current = socket;
-    socket.connect();
-
-    const disposeData = term.onData((d) => socket.sendData(d));
-    const disposeResize = term.onResize(({ cols, rows }) => socket.resize(cols, rows));
-
-    const ro = new ResizeObserver(() => {
+    const safeFit = () => {
+      if (disposed || el.clientWidth === 0 || el.clientHeight === 0) return;
       try {
         fit.fit();
       } catch {
         /* ignore transient layout errors */
       }
-    });
-    ro.observe(el);
+    };
 
-    const ping = setInterval(() => socket.send({ t: 'ping' }), 25_000);
+    // Open the terminal only once its container has a real size — opening into a
+    // zero-height box leaves the renderer without dimensions and the first byte
+    // of output then throws inside xterm's Viewport.
+    const boot = () => {
+      if (disposed) return;
+      if (el.clientWidth === 0 || el.clientHeight === 0) {
+        const raf = requestAnimationFrame(boot);
+        cleanups.push(() => cancelAnimationFrame(raf));
+        return;
+      }
+
+      term.open(el);
+      safeFit();
+
+      const socket = new TerminalSocket(
+        { connectionId, adhoc, cols: term.cols, rows: term.rows },
+        {
+          onData: (chunk) =>
+            highlightRef.current ? term.write(colorizeChunk(new TextDecoder().decode(chunk))) : term.write(chunk),
+          onStatus: (state, detail) => {
+            setStatus(state);
+            setStatusDetail(detail);
+            if (state === 'ready') term.focus();
+            if (state === 'closed') {
+              term.write(`\r\n\x1b[90m— session closed${detail ? `: ${detail}` : ''} —\x1b[0m\r\n`);
+              onExit?.(detail ?? 'closed');
+            }
+          },
+          onHostKey: (msg) => setHostKey(msg),
+          onError: (message) => term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`),
+        },
+      );
+      socketRef.current = socket;
+      socket.connect();
+
+      const disposeData = term.onData((d) => socket.sendData(d));
+      const disposeResize = term.onResize(({ cols, rows }) => socket.resize(cols, rows));
+      const ro = new ResizeObserver(() => safeFit());
+      ro.observe(el);
+      const ping = setInterval(() => socket.send({ t: 'ping' }), 25_000);
+
+      // Paste guard: intercept multi-line pastes before xterm sends them.
+      const onPaste = (e: ClipboardEvent) => {
+        const text = e.clipboardData?.getData('text') ?? '';
+        if (/\r|\n/.test(text.trim()) && text.length > 8) {
+          e.preventDefault();
+          e.stopPropagation();
+          setPendingSend({ text, exec: false });
+        }
+      };
+      el.addEventListener('paste', onPaste, true);
+
+      cleanups.push(() => {
+        clearInterval(ping);
+        ro.disconnect();
+        el.removeEventListener('paste', onPaste, true);
+        disposeData.dispose();
+        disposeResize.dispose();
+        socket.close();
+      });
+    };
+    boot();
 
     return () => {
-      clearInterval(ping);
-      ro.disconnect();
-      disposeData.dispose();
-      disposeResize.dispose();
-      socket.close();
+      disposed = true;
+      cleanups.forEach((fn) => fn());
       term.dispose();
     };
   }, [connectionId, adhoc, onExit]);
 
   return (
     <div className="terminal-wrap">
-      <div className={`term-status ${status}`}>
-        {status === 'connecting' && (statusDetail ?? 'Connecting…')}
-        {status === 'ready' && 'Connected'}
-        {status === 'closed' && (statusDetail ? `Closed: ${statusDetail}` : 'Closed')}
+      <div className="term-status">
+        {status === 'connecting' && (
+          <>
+            <Badge tone="info" dot>
+              Connecting
+            </Badge>
+            {statusDetail && <span className="muted">{statusDetail}</span>}
+          </>
+        )}
+        {status === 'ready' && (
+          <Badge tone="up" dot>
+            Up
+          </Badge>
+        )}
+        {status === 'closed' && (
+          <>
+            <Badge tone="down" dot>
+              Down
+            </Badge>
+            {statusDetail && <span className="muted">{statusDetail}</span>}
+          </>
+        )}
+        <span className="spacer" />
+        {(snippetData?.snippets.length ?? 0) > 0 && (
+          <div className="snippet-menu">
+            <button className="btn ghost sm" onClick={() => setShowSnippets((s) => !s)}>
+              Snippets ▾
+            </button>
+            {showSnippets && (
+              <div className="snippet-list" onMouseLeave={() => setShowSnippets(false)}>
+                {snippetData!.snippets.map((s) => (
+                  <button
+                    key={s.id}
+                    className="snippet-item"
+                    onClick={() => {
+                      sendToSession(s.command, true);
+                      setShowSnippets(false);
+                    }}
+                    title={s.command}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        <button
+          className={`btn ghost sm ${highlight ? 'toggle-on' : ''}`}
+          title="Colour UP / DOWN / VLAN keywords in output (does not affect interactive apps)"
+          onClick={() => setHighlight((v) => !v)}
+        >
+          Highlight {highlight ? 'on' : 'off'}
+        </button>
       </div>
       <div className="terminal-host" ref={hostRef} />
       {hostKey && (
@@ -116,6 +233,32 @@ export function TerminalView({ connectionId, adhoc, onExit }: Props) {
             setHostKey(null);
           }}
         />
+      )}
+      {pendingSend && (
+        <div className="overlay" onClick={() => setPendingSend(null)}>
+          <div className="card hostkey" onClick={(e) => e.stopPropagation()}>
+            <h2>
+              <Badge tone="warn">Paste guard</Badge>
+              Send {pendingSend.text.split(/\r?\n/).length} lines to this session?
+            </h2>
+            <p className="muted small">Pasting a partial config into a device can be disruptive. Review it first.</p>
+            <pre className="paste-preview">{pendingSend.text.slice(0, 2000)}</pre>
+            <div className="row end gap">
+              <button className="btn ghost" onClick={() => setPendingSend(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                onClick={() => {
+                  socketRef.current?.sendData(pendingSend.text);
+                  setPendingSend(null);
+                }}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

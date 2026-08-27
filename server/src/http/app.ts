@@ -12,6 +12,8 @@ import type { User } from '../db/schema.js';
 import { CSRF_COOKIE, SID_COOKIE } from '../auth/session.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerConnectionRoutes } from './routes/connections.js';
+import { registerCredentialRoutes } from './routes/credentials.js';
+import { registerSnippetRoutes } from './routes/snippets.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerHealthRoutes } from './routes/health.js';
 
@@ -89,6 +91,8 @@ export async function buildApp(ctx: AppContext): Promise<AnyFastify> {
   const api = async (scoped: AnyFastify): Promise<void> => {
     registerHealthRoutes(scoped, ctx);
     registerAuthRoutes(scoped, ctx);
+    registerCredentialRoutes(scoped, ctx);
+    registerSnippetRoutes(scoped, ctx);
     registerConnectionRoutes(scoped, ctx);
     registerSessionRoutes(scoped, ctx);
   };

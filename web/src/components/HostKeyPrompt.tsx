@@ -1,4 +1,5 @@
 import type { HostKeyPromptMsg } from '../types';
+import { Badge } from './Badge';
 
 interface Props {
   msg: HostKeyPromptMsg;
@@ -10,7 +11,10 @@ export function HostKeyPrompt({ msg, onDecision }: Props) {
   return (
     <div className="overlay">
       <div className={`card hostkey ${changed ? 'danger' : ''}`}>
-        <h2>{changed ? '⚠ Host key changed' : 'Unknown host key'}</h2>
+        <h2>
+          <Badge tone={changed ? 'down' : 'warn'}>{changed ? 'Key changed' : 'Unknown'}</Badge>
+          {changed ? 'Host key changed' : 'Unknown host key'}
+        </h2>
         <p className="muted">
           {changed
             ? 'The host key for this server does not match the one previously trusted. This could be a man-in-the-middle attack — or the server was legitimately rebuilt.'

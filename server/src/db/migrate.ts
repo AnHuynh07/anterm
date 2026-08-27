@@ -75,6 +75,78 @@ const migrations: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS ssh_sessions_started_idx ON ssh_sessions (started_at);
     `,
   },
+  {
+    id: '0002_login_automation',
+    sql: /* sql */ `
+      ALTER TABLE connections ADD COLUMN login_username TEXT;
+      ALTER TABLE connections ADD COLUMN login_password_enc TEXT;
+      ALTER TABLE connections ADD COLUMN enable_password_enc TEXT;
+      ALTER TABLE connections ADD COLUMN setup_commands TEXT;
+    `,
+  },
+  {
+    id: '0003_organisation',
+    sql: /* sql */ `
+      ALTER TABLE connections ADD COLUMN group_name TEXT;
+      ALTER TABLE connections ADD COLUMN tags TEXT;
+      ALTER TABLE connections ADD COLUMN color TEXT;
+      CREATE INDEX IF NOT EXISTS connections_group_idx ON connections (user_id, group_name);
+    `,
+  },
+  {
+    id: '0004_credential_vault',
+    sql: /* sql */ `
+      CREATE TABLE IF NOT EXISTS credentials (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        ssh_username TEXT,
+        auth_type TEXT NOT NULL DEFAULT 'password',
+        secret_enc TEXT,
+        passphrase_enc TEXT,
+        login_username TEXT,
+        login_password_enc TEXT,
+        enable_password_enc TEXT,
+        setup_commands TEXT,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS credentials_user_name_idx ON credentials (user_id, name);
+      ALTER TABLE connections ADD COLUMN credential_id TEXT REFERENCES credentials(id) ON DELETE SET NULL;
+    `,
+  },
+  {
+    id: '0005_recording_and_commands',
+    sql: /* sql */ `
+      ALTER TABLE ssh_sessions ADD COLUMN recording_path TEXT;
+      ALTER TABLE ssh_sessions ADD COLUMN command_count INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS commands (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES ssh_sessions(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        target TEXT NOT NULL,
+        ts INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        text TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS commands_session_idx ON commands (session_id);
+      CREATE INDEX IF NOT EXISTS commands_user_ts_idx ON commands (user_id, ts);
+    `,
+  },
+  {
+    id: '0006_snippets_and_antiidle',
+    sql: /* sql */ `
+      ALTER TABLE connections ADD COLUMN anti_idle_seconds INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS snippets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        command TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+      );
+      CREATE INDEX IF NOT EXISTS snippets_user_idx ON snippets (user_id);
+    `,
+  },
 ];
 
 export function runMigrations(raw: Database.Database): void {

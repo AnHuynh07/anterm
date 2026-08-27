@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import type { AdhocTarget } from '../types';
+import type { AdhocTarget, ConnectionColor } from '../types';
 
 export interface TermTab {
   key: string;
   connectionId?: string;
   adhoc?: AdhocTarget;
   title: string;
+  color?: ConnectionColor;
 }
 
 interface TabsState {

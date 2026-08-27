@@ -2,12 +2,18 @@ import { FormEvent, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
+// Dev convenience: prefill credentials so you don't retype them during local
+// work. Stripped from production builds. Override via VITE_DEV_USER /
+// VITE_DEV_PASSWORD (e.g. in web/.env.local).
+const DEV_USER = import.meta.env.DEV ? (import.meta.env.VITE_DEV_USER ?? 'admin') : '';
+const DEV_PASSWORD = import.meta.env.DEV ? (import.meta.env.VITE_DEV_PASSWORD ?? 'changeme') : '';
+
 export function LoginPage() {
   const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState(DEV_USER);
+  const [password, setPassword] = useState(DEV_PASSWORD);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -34,6 +40,9 @@ export function LoginPage() {
       <form className="card login-card" onSubmit={onSubmit}>
         <h1>AnTerm</h1>
         <p className="muted">Sign in to open SSH sessions</p>
+        {import.meta.env.DEV && DEV_USER && (
+          <p className="muted small">Dev credentials prefilled — set VITE_DEV_USER/PASSWORD to change.</p>
+        )}
         <label>
           Username
           <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />

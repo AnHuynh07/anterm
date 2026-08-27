@@ -1,7 +1,8 @@
 import { FormEvent, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
+import type { Snippet } from '../types';
 
 export function SettingsPage() {
   const { user } = useAuth();
@@ -66,6 +67,76 @@ export function SettingsPage() {
         <button className="btn primary" disabled={change.isPending || mismatch}>
           {change.isPending ? 'Saving…' : 'Update password'}
         </button>
+      </form>
+
+      <SnippetsCard />
+    </div>
+  );
+}
+
+function SnippetsCard() {
+  const qc = useQueryClient();
+  const [name, setName] = useState('');
+  const [command, setCommand] = useState('');
+
+  const { data } = useQuery({ queryKey: ['snippets'], queryFn: () => api<{ snippets: Snippet[] }>('/snippets') });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['snippets'] });
+
+  const add = useMutation({
+    mutationFn: () => api('/snippets', { method: 'POST', body: { name, command } }),
+    onSuccess: () => {
+      setName('');
+      setCommand('');
+      void invalidate();
+    },
+  });
+  const del = useMutation({
+    mutationFn: (id: string) => api(`/snippets/${id}`, { method: 'DELETE' }),
+    onSuccess: invalidate,
+  });
+
+  return (
+    <div className="card">
+      <h2>Command snippets</h2>
+      <p className="muted small">Saved commands you can click-send from the terminal (executed on the current session).</p>
+      {data && data.snippets.length > 0 && (
+        <table className="table">
+          <tbody>
+            {data.snippets.map((s) => (
+              <tr key={s.id}>
+                <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{s.name}</td>
+                <td className="mono small">{s.command}</td>
+                <td className="row end">
+                  <button className="btn danger sm" onClick={() => del.mutate(s.id)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <form
+        className="grid2"
+        style={{ marginTop: 12 }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim() && command.trim()) add.mutate();
+        }}
+      >
+        <label>
+          Name
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="show run" />
+        </label>
+        <label>
+          Command
+          <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="show running-config" />
+        </label>
+        <div className="row end" style={{ gridColumn: '1 / -1' }}>
+          <button className="btn primary" disabled={add.isPending || !name.trim() || !command.trim()}>
+            Add snippet
+          </button>
+        </div>
       </form>
     </div>
   );

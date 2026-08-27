@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import type { Connection } from '../types';
 import { useTerminalTabs } from '../hooks/useTerminalTabs';
 import { TerminalView } from '../components/Terminal';
+import { COLOR_HEX } from '../components/colors';
 
 export function TerminalPage() {
   const { connectionId } = useParams();
@@ -21,10 +22,12 @@ export function TerminalPage() {
   useEffect(() => {
     if (!connectionId || handled.current === connectionId) return;
     handled.current = connectionId;
-    const title = data?.connections.find((c) => c.id === connectionId)?.name ?? 'session';
-    openTab({ connectionId, title });
+    const c = data?.connections.find((x) => x.id === connectionId);
+    openTab({ connectionId, title: c?.name ?? 'session', color: c?.color ?? undefined });
     navigate('/terminal', { replace: true });
   }, [connectionId, data, openTab, navigate]);
+
+  const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0];
 
   if (tabs.length === 0) {
     return (
@@ -42,7 +45,13 @@ export function TerminalPage() {
     <div className="terminal-page">
       <div className="tab-bar">
         {tabs.map((t) => (
-          <div key={t.key} className={`tab ${t.key === activeKey ? 'active' : ''}`} onClick={() => setActive(t.key)}>
+          <div
+            key={t.key}
+            className={`tab ${t.key === activeKey ? 'active' : ''}`}
+            onClick={() => setActive(t.key)}
+            style={t.color ? { borderTop: `2px solid ${COLOR_HEX[t.color]}` } : undefined}
+          >
+            {t.color && <span className="tab-dot" style={{ background: COLOR_HEX[t.color] }} />}
             <span>{t.title}</span>
             <button
               className="tab-close"
@@ -56,12 +65,19 @@ export function TerminalPage() {
           </div>
         ))}
       </div>
+      {activeTab?.color && (
+        <div className="conn-banner" style={{ background: COLOR_HEX[activeTab.color] }}>
+          {activeTab.title}
+        </div>
+      )}
       <div className="terminal-stage">
-        {tabs.map((t) => (
-          <div key={t.key} className="terminal-slot" style={{ display: t.key === activeKey ? 'flex' : 'none' }}>
-            <TerminalView connectionId={t.connectionId} adhoc={t.adhoc} onExit={() => undefined} />
+        {/* Render only the active session — xterm needs a visible, sized container.
+            Switching tabs (re)connects that session. */}
+        {activeTab && (
+          <div key={activeTab.key} className="terminal-slot">
+            <TerminalView connectionId={activeTab.connectionId} adhoc={activeTab.adhoc} onExit={() => undefined} />
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

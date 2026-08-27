@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { extname, resolve } from 'node:path';
+import { dirname, extname, resolve } from 'node:path';
 import yaml from 'js-yaml';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
@@ -52,6 +52,11 @@ const schema = z.object({
   sshIdleTimeoutMin: z.coerce.number().nonnegative().default(0), // 0 = disabled
   sshMaxDurationMin: z.coerce.number().nonnegative().default(0),
 
+  // audit
+  record: bool.default(true), // record session I/O + command log
+  recordDir: z.string().optional(), // default: <dbdir>/recordings
+  recordRetentionDays: z.coerce.number().nonnegative().default(30), // 0 = keep forever
+
   // WeTTY-style ad-hoc SSH defaults
   ssh: z.object({
     host: z.string().optional(),
@@ -69,6 +74,8 @@ export type AppConfig = z.infer<typeof schema> & {
   adhocEnabled: boolean;
   localShell: boolean;
   isDev: boolean;
+  /** resolved recordings directory */
+  recordingsDir: string;
 };
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
@@ -97,6 +104,9 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     .option('session-ttl-hours', { type: 'number' })
     .option('ssh-idle-timeout-min', { type: 'number', describe: 'Close idle SSH sessions after N minutes (0 = off)' })
     .option('ssh-max-duration-min', { type: 'number', describe: 'Hard cap on SSH session length (0 = off)' })
+    .option('record', { type: 'boolean', describe: 'Record session I/O + command log (default true)' })
+    .option('record-dir', { type: 'string', describe: 'Directory for .cast recordings' })
+    .option('record-retention-days', { type: 'number', describe: 'Delete recordings older than N days (0 = keep)' })
     .option('ssl-key', { type: 'string' })
     .option('ssl-cert', { type: 'string' })
     .option('ssh-host', { type: 'string', describe: 'Ad-hoc mode: default SSH host' })
@@ -129,6 +139,9 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     sessionTtlHours: parsed.sessionTtlHours ?? fileCfg.sessionTtlHours,
     sshIdleTimeoutMin: parsed.sshIdleTimeoutMin ?? fileCfg.sshIdleTimeoutMin,
     sshMaxDurationMin: parsed.sshMaxDurationMin ?? fileCfg.sshMaxDurationMin,
+    record: parsed.record ?? fileCfg.record,
+    recordDir: parsed.recordDir ?? fileCfg.recordDir,
+    recordRetentionDays: parsed.recordRetentionDays ?? fileCfg.recordRetentionDays,
     ssh: {
       host: parsed.sshHost ?? fileSsh.host,
       port: parsed.sshPort ?? fileSsh.port,
@@ -142,11 +155,15 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
   };
 
   const cfg = schema.parse(merged);
+  const recordingsDir =
+    cfg.recordDir ??
+    (cfg.dbUrl === ':memory:' ? resolve('./data/recordings') : resolve(dirname(cfg.dbUrl), 'recordings'));
   return {
     ...cfg,
     adhocEnabled: Boolean(cfg.ssh.host),
     // WeTTY-style: `--ssh-host localhost` with no --force-ssh means a local PTY.
     localShell: Boolean(cfg.ssh.host && LOOPBACK.has(cfg.ssh.host) && !cfg.ssh.forceSsh),
     isDev: process.env.NODE_ENV !== 'production',
+    recordingsDir,
   };
 }

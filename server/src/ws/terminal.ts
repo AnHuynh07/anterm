@@ -5,10 +5,14 @@ import type { AppContext } from '../context.js';
 import type { User } from '../db/schema.js';
 import { AuditLog } from '../audit.js';
 import { ConnectionRepo } from '../connections/repo.js';
+import { CredentialRepo, resolveTarget } from '../connections/credentials.js';
 import { SshSession } from '../ssh/client.js';
 import { LocalSession } from '../ssh/local.js';
 import type { TerminalBackend } from '../ssh/backend.js';
+import { AutoLogin, type AutoLoginConfig } from '../ssh/autologin.js';
+import { CommandExtractor, SessionRecorder } from '../ssh/recorder.js';
 import { makeHostKeyVerifier, type HostKeyPrompt } from '../ssh/hostkeys.js';
+import { join } from 'node:path';
 import { clientMessage, encodeServer, type ServerMessage } from './protocol.js';
 import { SID_COOKIE } from '../auth/session.js';
 
@@ -37,6 +41,7 @@ export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => voi
   const wss = new WebSocketServer({ noServer: true });
   const wsPath = `${config.base === '/' ? '' : config.base}/ws/terminal`;
   const repo = new ConnectionRepo(ctx.db, config.appSecret);
+  const creds = new CredentialRepo(ctx.db, config.appSecret);
   const audit = new AuditLog(ctx.db);
 
   const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -59,7 +64,7 @@ export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => voi
           return;
         }
         wss.handleUpgrade(req, socket, head, (ws) => {
-          new TerminalBridge(ws, req, ctx, repo, audit, resolved.user).start();
+          new TerminalBridge(ws, req, ctx, repo, creds, audit, resolved.user).start();
         });
       })
       .catch((err) => {
@@ -77,7 +82,20 @@ export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => voi
 
 class TerminalBridge {
   private backend: TerminalBackend | null = null;
+  private autoLogin: AutoLogin | null = null;
+  /** secret strings the auto-login typed — for redaction in recordings */
+  readonly redact: string[] = [];
+  private recorder: SessionRecorder | null = null;
+  private cmdExtractor = new CommandExtractor();
+  private pendingCommands: string[] = [];
+  private commandCount = 0;
+  private cmdFlushTimer: NodeJS.Timeout | null = null;
+  private antiIdleTimer: NodeJS.Timeout | null = null;
+  private lastActivity = Date.now();
   private auditId: string | null = null;
+  private auditTarget = '';
+  private cols = 80;
+  private rows = 24;
   private bytesIn = 0;
   private bytesOut = 0;
   private opened = false;
@@ -91,6 +109,7 @@ class TerminalBridge {
     private readonly req: IncomingMessage,
     private readonly ctx: AppContext,
     private readonly repo: ConnectionRepo,
+    private readonly creds: CredentialRepo,
     private readonly audit: AuditLog,
     private readonly user: User,
   ) {}
@@ -111,7 +130,14 @@ class TerminalBridge {
     if (isBinary) {
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
       this.bytesIn += buf.length;
+      this.lastActivity = Date.now();
       this.bumpIdle();
+      const cmds = this.cmdExtractor.feed(buf);
+      if (cmds.length) {
+        this.pendingCommands.push(...cmds);
+        this.commandCount += cmds.length;
+        this.scheduleCommandFlush();
+      }
       this.backend?.write(buf);
       return;
     }
@@ -145,6 +171,8 @@ class TerminalBridge {
 
   private async open(msg: Extract<import('./protocol.js').ClientMessage, { t: 'open' }>): Promise<void> {
     const { config } = this.ctx;
+    this.cols = msg.cols;
+    this.rows = msg.rows;
 
     let target: {
       host: string;
@@ -155,6 +183,8 @@ class TerminalBridge {
       passphrase?: string;
       command?: string;
       connectionId?: string;
+      autoLogin?: AutoLoginConfig;
+      antiIdleSeconds?: number;
     };
 
     // WeTTY-style local shell: `anterm --ssh-host localhost` (no --force-ssh),
@@ -171,13 +201,26 @@ class TerminalBridge {
           this.fail('connection not found');
           return;
         }
+        const cred = conn.credentialId ? await this.creds.get(this.user.id, conn.credentialId) : undefined;
+        const resolved = resolveTarget(conn, cred ?? null, config.appSecret);
+        const username = conn.sshUsername || resolved.credSshUsername || '';
+        if (!username) {
+          this.fail('no SSH username — set one on the connection or its credential');
+          return;
+        }
+        const hasAuto = Boolean(resolved.autoLogin);
         target = {
           host: conn.host,
           port: conn.port,
-          username: conn.sshUsername,
-          command: conn.initCommand ?? config.ssh.command,
+          username,
+          // login automation needs an interactive shell; exec-mode init command is ignored then
+          command: hasAuto ? undefined : (conn.initCommand ?? config.ssh.command),
           connectionId: conn.id,
-          ...this.repo.resolveSecrets(conn),
+          autoLogin: resolved.autoLogin ?? undefined,
+          antiIdleSeconds: conn.antiIdleSeconds || undefined,
+          password: resolved.password,
+          privateKey: resolved.privateKey,
+          passphrase: resolved.passphrase,
         };
       } else if (msg.adhoc) {
         if (!config.adhocEnabled) {
@@ -245,7 +288,13 @@ class TerminalBridge {
       rows: msg.rows,
       verifyHostKey,
     });
-    this.wireBackend(ssh, `${target.username}@${target.host}:${target.port}`, target.connectionId);
+    this.wireBackend(
+      ssh,
+      `${target.username}@${target.host}:${target.port}`,
+      target.connectionId,
+      target.autoLogin,
+      target.antiIdleSeconds,
+    );
     ssh.connect();
   }
 
@@ -259,27 +308,36 @@ class TerminalBridge {
     local.connect();
   }
 
-  private wireBackend(backend: TerminalBackend, auditTarget: string, connectionId?: string): void {
+  private wireBackend(
+    backend: TerminalBackend,
+    auditTarget: string,
+    connectionId?: string,
+    autoLogin?: AutoLoginConfig,
+    antiIdleSeconds?: number,
+  ): void {
     this.backend = backend;
+    this.auditTarget = auditTarget;
 
     backend.on('ready', () => {
-      void this.audit
-        .open({
-          userId: this.user.id,
-          connectionId,
-          target: auditTarget,
-          clientIp: clientIp(this.req, this.ctx.config.trustProxy),
-        })
-        .then((id) => {
-          this.auditId = id;
-        });
+      void this.onBackendReady(connectionId);
+      if (autoLogin) {
+        this.autoLogin = new AutoLogin(
+          autoLogin,
+          (s) => backend.write(s),
+          (s) => this.redact.push(s),
+        );
+      }
+      if (antiIdleSeconds && antiIdleSeconds > 0) this.startAntiIdle(backend, antiIdleSeconds * 1000);
       this.send({ t: 'status', state: 'ready' });
       this.armTimers();
     });
 
     backend.on('data', (chunk) => {
       this.bytesOut += chunk.length;
+      this.lastActivity = Date.now();
       this.bumpIdle();
+      this.autoLogin?.feed(chunk);
+      this.recorder?.output(chunk);
       if (this.ws.readyState === this.ws.OPEN) this.ws.send(chunk, { binary: true });
     });
 
@@ -298,6 +356,72 @@ class TerminalBridge {
     const list = this.ctx.config.allowHosts;
     if (!list.length) return true;
     return list.includes(host.toLowerCase());
+  }
+
+  private async onBackendReady(connectionId?: string): Promise<void> {
+    const { config } = this.ctx;
+    let recordingPath: string | null = null;
+
+    // start the .cast recorder before writing the audit row so the row carries its path
+    if (config.record) {
+      const rel = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.cast`;
+      const rec = new SessionRecorder(join(config.recordingsDir, rel), {
+        cols: this.cols,
+        rows: this.rows,
+        title: this.auditTarget,
+        redact: () => this.redact,
+      });
+      if (rec.open()) {
+        this.recorder = rec;
+        recordingPath = rel;
+      } else {
+        this.ctx.log.warn('could not start session recording (disk?)');
+      }
+    }
+
+    this.auditId = await this.audit.open({
+      userId: this.user.id,
+      connectionId,
+      target: this.auditTarget,
+      clientIp: clientIp(this.req, config.trustProxy),
+      recordingPath,
+    });
+    // flush any commands that were typed before the audit row existed
+    this.flushCommands();
+  }
+
+  /** Keep a device session alive: send a harmless NUL whenever the channel has
+   *  been silent (no input and no output) for the configured interval. */
+  private startAntiIdle(backend: TerminalBackend, intervalMs: number): void {
+    const period = Math.max(intervalMs, 15_000);
+    this.antiIdleTimer = setInterval(() => {
+      if (Date.now() - this.lastActivity >= period) {
+        try {
+          backend.write('\x00');
+        } catch {
+          /* ignore */
+        }
+        this.lastActivity = Date.now();
+      }
+    }, Math.min(period, 30_000));
+    this.antiIdleTimer.unref?.();
+  }
+
+  private scheduleCommandFlush(): void {
+    if (this.cmdFlushTimer) return;
+    this.cmdFlushTimer = setTimeout(() => {
+      this.cmdFlushTimer = null;
+      this.flushCommands();
+    }, 2000);
+  }
+
+  private flushCommands(): void {
+    if (!this.auditId || !this.pendingCommands.length) return;
+    const texts = this.pendingCommands;
+    this.pendingCommands = [];
+    void this.audit
+      .logCommands({ sessionId: this.auditId, userId: this.user.id, target: this.auditTarget, texts })
+      .catch((err) => this.ctx.log.warn({ err }, 'command log write failed'));
   }
 
   private armTimers(): void {
@@ -329,6 +453,11 @@ class TerminalBridge {
     this.finished = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.maxTimer) clearTimeout(this.maxTimer);
+    if (this.cmdFlushTimer) clearTimeout(this.cmdFlushTimer);
+    if (this.antiIdleTimer) clearInterval(this.antiIdleTimer);
+    this.autoLogin?.dispose();
+    this.recorder?.close();
+    this.recorder = null;
     this.pendingHostKey?.(false);
     this.pendingHostKey = null;
     try {
@@ -336,11 +465,13 @@ class TerminalBridge {
     } catch {
       /* ignore */
     }
+    this.flushCommands();
     if (this.auditId) {
       void this.audit.close(this.auditId, {
         bytesIn: this.bytesIn,
         bytesOut: this.bytesOut,
         exitReason: reason,
+        commandCount: this.commandCount,
       });
       this.auditId = null;
     }

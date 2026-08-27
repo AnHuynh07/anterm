@@ -16,14 +16,32 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 
 ## Features
 
-- **xterm.js terminal** with fit/resize, WebGL renderer, clipboard, web-links, search addons
+- **xterm.js terminal** with fit/resize, clipboard, web-links, search addons
 - **WebSocket transport** — binary frames for terminal I/O, JSON for control
 - **Login** (argon2, server-side sessions, CSRF-protected mutations, login rate-limiting)
-- **Connection manager** — save SSH targets per user; credentials (passwords / private keys)
-  are encrypted at rest with AES-256-GCM
+- **Connection manager** — save SSH targets per user, organised by **group / tags / colour
+  label** with search; credentials encrypted at rest with AES-256-GCM
+- **Credential vault** — define a login profile (SSH auth + login automation) once and attach
+  it to many connections; rotate a password in one place
+- **Login automation** for network gear — after SSH connects, AnTerm answers the device's
+  in-terminal `Username:` / `Password:` prompts, enters `enable` mode, runs setup commands
+  (`terminal length 0` …), then permanently disengages so interactive apps are untouched
+- **Colour labels** — mark a connection red/"production"; its tab and a banner above the
+  terminal turn red so you know which box you're typing on
+- **Import / export** the inventory as JSON or CSV (no secrets; credentials referenced by name)
 - **Host key verification** — trust-on-first-use prompt in the UI; stored and checked on
   every later connection; loud warning if a key changes
-- **Session history** — every SSH session is audit-logged (who, where, when, bytes, reason)
+- **Session recording & audit** — every session recorded to asciinema `.cast` (secrets
+  masked), replayed in the browser with a scrubber, exportable as `.cast` / `.txt`; every
+  typed command indexed into a searchable **command log**
+- **Command snippets** — save commands, click-send them into a session from the terminal
+- **Paste guard** — confirm before pasting multi-line text into a device
+- **Anti-idle keepalive** — per-connection: send a null byte every N seconds of silence so
+  the device doesn't drop the session
+- **Light UI** with colour-coded status pills — **UP** / **DOWN** / connection state, test
+  results, auth types — so state is readable at a glance
+- **Keyword highlight** toggle in the terminal — colours `up` / `down` / `vlan N` / `trunk` /
+  `err-disabled` … in plain output (skips interactive apps; off by default, remembered per browser)
 - **Multiple terminal tabs**, bounded auto-reconnect on transient network drops
 - **WeTTY-compatible** CLI flags / env / config file, `--base` for reverse-proxy sub-paths,
   ad-hoc SSH mode (`--ssh-host`), and an optional local shell
@@ -36,6 +54,10 @@ npm install
 cp .env.example .env          # then edit ANTERM_APP_SECRET / ADMIN_PASSWORD
 npm run dev                    # server on :3000, Vite dev server on :5173
 ```
+
+In dev the login form is prefilled with `admin` / `changeme` for convenience
+(never in a production build). Override with `VITE_DEV_USER` / `VITE_DEV_PASSWORD`
+in `web/.env.local`.
 
 Open http://localhost:5173 and sign in with `ADMIN_USER` / `ADMIN_PASSWORD`.
 
@@ -80,6 +102,9 @@ for the full list. Common options:
 | `--ssh-max-duration-min` | `ANTERM_SSH_MAX_DURATION_MIN` | `0` (off) | Hard cap on session length |
 | `--session-ttl-hours` | `ANTERM_SESSION_TTL_HOURS` | `12` | Login session lifetime |
 | `--allow-iframe` | `ANTERM_ALLOW_IFRAME` | `false` | Allow embedding in an iframe |
+| `--record` / `--no-record` | `ANTERM_RECORD` | `true` | Record session I/O + command log |
+| `--record-dir` | `ANTERM_RECORD_DIR` | `<db dir>/recordings` | Where `.cast` files are stored |
+| `--record-retention-days` | `ANTERM_RECORD_RETENTION_DAYS` | `30` | Delete recordings + old sessions after N days (0 = keep) |
 
 ### WeTTY-style ad-hoc mode
 
@@ -107,6 +132,24 @@ allowHosts:
 ssh:
   command: /usr/bin/tmux new -A -s web
 ```
+
+### Login automation (network devices)
+
+When editing a connection, open **Login automation**. After SSH transport auth, AnTerm
+watches the first ~20 s of session output and:
+
+1. sends **Login username** on a `Username:` / `login:` prompt,
+2. sends **Login password** on the next `Password:` prompt,
+3. if **Enter enable mode** is checked: sends `enable`, then the **Enable password**,
+4. runs each **Setup command** (one per line, e.g. `terminal length 0`) once a prompt appears,
+5. then **disengages permanently** — it never reads or writes the stream again, so `vim`,
+   `less`, `tmux` and progress bars are unaffected.
+
+Passwords are encrypted at rest and never sent to the browser. Leave the login fields blank
+for hosts where SSH drops you straight into a shell (setup commands still run).
+
+Test locally without real gear: `npx tsx server/test/dev-target.ts 2223 --device`
+(SSH `svc`/`svc`, device login `netadmin`/`l0gin`, enable `en4ble`).
 
 ## Security notes
 

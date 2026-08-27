@@ -5,6 +5,22 @@ export interface AuthUser {
 }
 
 export type AuthType = 'password' | 'key' | 'agent';
+export type ConnectionColor = 'red' | 'amber' | 'green' | 'blue' | 'violet';
+
+export interface Credential {
+  id: string;
+  name: string;
+  sshUsername: string | null;
+  authType: AuthType;
+  hasSecret: boolean;
+  hasPassphrase: boolean;
+  loginUsername: string | null;
+  hasLoginPassword: boolean;
+  hasEnablePassword: boolean;
+  setupCommands: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface Connection {
   id: string;
@@ -12,17 +28,43 @@ export interface Connection {
   host: string;
   port: number;
   sshUsername: string;
+  credentialId: string | null;
   authType: AuthType;
   hasSecret: boolean;
   hasPassphrase: boolean;
   initCommand: string | null;
+  loginUsername: string | null;
+  hasLoginPassword: boolean;
+  hasEnablePassword: boolean;
+  setupCommands: string | null;
+  groupName: string | null;
+  tags: string[];
+  color: ConnectionColor | null;
+  antiIdleSeconds: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface Snippet {
+  id: string;
+  name: string;
+  command: string;
+  sortOrder: number;
+}
+
+export interface CommandRecord {
+  id: string;
+  ts: number;
+  text: string;
+  target: string;
+  sessionId?: string;
 }
 
 export interface SshSessionRecord {
   id: string;
   connectionId: string | null;
+  hasRecording?: boolean;
+  commandCount?: number;
   target: string;
   startedAt: number;
   endedAt: number | null;

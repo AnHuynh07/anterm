@@ -26,6 +26,7 @@ beforeAll(async () => {
     APP_SECRET,
     '--db-url',
     ':memory:',
+    '--no-record',
     '--ssh-host',
     '127.0.0.1',
     '--force-ssh',

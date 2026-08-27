@@ -15,3 +15,6 @@ web/dist/
 server/dist/
 test-results/
 playwright-report/
+recordings/
+# local scratch / smoke scripts
+_*.mjs

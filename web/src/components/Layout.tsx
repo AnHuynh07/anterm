@@ -1,6 +1,8 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
+const navClass = ({ isActive }: { isActive: boolean }) => (isActive ? 'active' : undefined);
+
 export function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -10,10 +12,21 @@ export function Layout() {
       <header className="app-header">
         <div className="brand">AnTerm</div>
         <nav>
-          <NavLink to="/connections">Connections</NavLink>
-          <NavLink to="/terminal">Terminal</NavLink>
-          <NavLink to="/sessions">History</NavLink>
-          <NavLink to="/settings">Settings</NavLink>
+          <NavLink to="/connections" className={navClass}>
+            Connections
+          </NavLink>
+          <NavLink to="/credentials" className={navClass}>
+            Credentials
+          </NavLink>
+          <NavLink to="/terminal" className={navClass}>
+            Terminal
+          </NavLink>
+          <NavLink to="/sessions" className={navClass}>
+            History
+          </NavLink>
+          <NavLink to="/settings" className={navClass}>
+            Settings
+          </NavLink>
         </nav>
         <div className="spacer" />
         <span className="who">{user?.username}</span>

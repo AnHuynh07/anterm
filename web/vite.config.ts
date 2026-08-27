@@ -10,7 +10,9 @@ export default defineConfig({
   base,
   plugins: [react()],
   server: {
+    host: true, // listen on all interfaces (127.0.0.1, ::1, LAN)
     port: 5173,
+    strictPort: true,
     proxy: {
       '/api': { target: serverTarget, changeOrigin: true },
       '/ws': { target: serverTarget, ws: true, changeOrigin: true },
@@ -28,7 +30,6 @@ export default defineConfig({
             '@xterm/addon-web-links',
             '@xterm/addon-search',
             '@xterm/addon-clipboard',
-            '@xterm/addon-webgl',
           ],
           react: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
         },
