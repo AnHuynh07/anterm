@@ -37,6 +37,8 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 - **Login automation** for network gear — after SSH connects, AnTerm answers the device's
   in-terminal `Username:` / `Password:` prompts, enters `enable` mode, runs setup commands
   (`terminal length 0` …), then permanently disengages so interactive apps are untouched
+- **Jump host / ProxyJump** — reach a device by tunnelling through another saved connection
+  (chain up to 4 bastions); the bastion's own credentials and host-key trust are reused
 - **Colour labels** — mark a connection red/"production"; its tab and a banner above the
   terminal turn red so you know which box you're typing on
 - **Import / export** the inventory as JSON or CSV (no secrets; credentials referenced by name)

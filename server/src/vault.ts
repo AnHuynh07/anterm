@@ -38,6 +38,8 @@ export interface VaultConnection {
   port: number;
   sshUsername: string;
   credential: string | null;
+  /** bastion connection, referenced by (owner, name) */
+  jump: string | null;
   authType: 'password' | 'key' | 'agent';
   secret: string | null;
   passphrase: string | null;
@@ -70,6 +72,7 @@ export async function buildVaultBundle(db: Db, appSecret: string): Promise<Vault
   ]);
   const userById = new Map(us.map((u) => [u.id, u.username]));
   const credNameById = new Map(creds.map((c) => [c.id, c.name]));
+  const connNameById = new Map(conns.map((c) => [c.id, c.name]));
 
   return {
     format: 'anterm-vault',
@@ -94,6 +97,7 @@ export async function buildVaultBundle(db: Db, appSecret: string): Promise<Vault
       port: c.port,
       sshUsername: c.sshUsername,
       credential: c.credentialId ? (credNameById.get(c.credentialId) ?? null) : null,
+      jump: c.jumpConnectionId ? (connNameById.get(c.jumpConnectionId) ?? null) : null,
       authType: c.authType,
       secret: maybeDecrypt(c.secretEnc, appSecret) ?? null,
       passphrase: maybeDecrypt(c.passphraseEnc, appSecret) ?? null,
@@ -229,6 +233,23 @@ export async function applyVaultBundle(
     }
   }
 
+  // second pass: wire jump-host links now that every connection exists
+  for (const c of bundle.connections) {
+    if (!c.jump) continue;
+    try {
+      const uid = ownerId(c.owner);
+      const [self, bastion] = await Promise.all([
+        db.query.connections.findFirst({ where: and(eq(connections.userId, uid), eq(connections.name, c.name)) }),
+        db.query.connections.findFirst({ where: and(eq(connections.userId, uid), eq(connections.name, c.jump)) }),
+      ]);
+      if (self && bastion && self.id !== bastion.id) {
+        await db.update(connections).set({ jumpConnectionId: bastion.id }).where(eq(connections.id, self.id));
+      }
+    } catch (err) {
+      summary.errors.push(`jump link ${c.name} -> ${c.jump}: ${(err as Error).message}`);
+    }
+  }
+
   return summary;
 }
 
@@ -300,6 +321,7 @@ const CSV_COLS = [
   'privateKey',
   'passphrase',
   'credentialRef',
+  'jumpRef',
   'loginUsername',
   'loginPassword',
   'enablePassword',
@@ -379,6 +401,8 @@ export function bundleToCsv(bundle: VaultBundle): string {
             return c.passphrase ?? '';
           case 'credentialRef':
             return c.credential ?? '';
+          case 'jumpRef':
+            return c.jump ?? '';
           case 'loginUsername':
             return c.loginUsername ?? '';
           case 'loginPassword':

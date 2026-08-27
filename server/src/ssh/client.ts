@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import type { Duplex } from 'node:stream';
 import { Client, type ClientChannel, type ConnectConfig } from 'ssh2';
 import { sha256Fingerprint } from './fingerprint.js';
 import type { CloseInfo, TerminalBackend } from './backend.js';
@@ -26,6 +27,8 @@ export interface SshConnectOptions {
   readyTimeoutMs?: number;
   keepaliveIntervalMs?: number;
   verifyHostKey: HostKeyVerifier;
+  /** pre-established transport (e.g. a forwardOut stream from a jump host) */
+  sock?: Duplex;
 }
 
 export type SshCloseInfo = CloseInfo;
@@ -67,6 +70,7 @@ export class SshSession extends EventEmitter implements TerminalBackend {
       host: this.opts.host,
       port: this.opts.port,
       username: this.opts.username,
+      ...(this.opts.sock ? { sock: this.opts.sock } : {}),
       readyTimeout: this.opts.readyTimeoutMs ?? 20_000,
       keepaliveInterval: this.opts.keepaliveIntervalMs ?? 20_000,
       keepaliveCountMax: 3,
@@ -172,7 +176,7 @@ export class SshSession extends EventEmitter implements TerminalBackend {
   }
 }
 
-function detectKeyType(key: Buffer): string {
+export function detectKeyType(key: Buffer): string {
   const text = key.toString('utf8', 0, Math.min(key.length, 64));
   const m = text.match(/ssh-(rsa|ed25519|dss)|ecdsa-sha2-\S+/);
   if (m) return m[0];

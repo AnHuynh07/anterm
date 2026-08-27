@@ -78,6 +78,8 @@ export const connections = sqliteTable(
     port: integer('port').notNull().default(22),
     sshUsername: text('ssh_username').notNull().default(''),
     credentialId: text('credential_id').references(() => credentials.id, { onDelete: 'set null' }),
+    // reach this device by tunnelling through another saved connection (bastion)
+    jumpConnectionId: text('jump_connection_id'),
     authType: text('auth_type', { enum: ['password', 'key', 'agent'] })
       .notNull()
       .default('password'),

@@ -11,6 +11,7 @@ import { CredentialRepo, resolveTarget } from '../connections/credentials.js';
 import { ShareRepo } from '../connections/shares.js';
 import { connAccess } from '../access.js';
 import { SshSession } from '../ssh/client.js';
+import { dialThroughJumps } from '../ssh/jump.js';
 import { LocalSession } from '../ssh/local.js';
 import type { TerminalBackend } from '../ssh/backend.js';
 import { AutoLogin, type AutoLoginConfig } from '../ssh/autologin.js';
@@ -50,6 +51,15 @@ interface Deps {
 
 type OpenMsg = Extract<ClientMessage, { t: 'open' }>;
 
+interface JumpHopSpec {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  privateKey?: string;
+  passphrase?: string;
+}
+
 interface Target {
   host: string;
   port: number;
@@ -63,6 +73,7 @@ interface Target {
   antiIdleSeconds?: number;
   auditTarget: string;
   local?: boolean;
+  jumps?: JumpHopSpec[];
 }
 
 export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => void {
@@ -149,6 +160,7 @@ class LiveSession {
 
   private clients = new Set<ClientConn>();
   private pendingHostKey: ((accept: boolean) => void) | null = null;
+  private jumpDispose: (() => void) | null = null;
 
   constructor(
     private readonly ctx: AppContext,
@@ -189,27 +201,52 @@ class LiveSession {
         });
       });
 
-    const ssh = new SshSession({
-      host: this.target.host,
-      port: this.target.port,
-      username: this.target.username,
-      password: this.target.password,
-      privateKey: this.target.privateKey,
-      passphrase: this.target.passphrase,
-      command: this.target.command,
-      cols: this.cols,
-      rows: this.rows,
-      verifyHostKey: makeHostKeyVerifier(this.ctx.db, this.user.id, prompt, (info) =>
+    const verifier = () =>
+      makeHostKeyVerifier(this.ctx.db, this.user.id, prompt, (info) =>
         this.ctx.activity.record({
           actor: { id: this.user.id, name: this.user.username, ip: [...this.clients][0]?.ip ?? null },
           action: info.status === 'changed' ? 'hostkey.changed_accepted' : 'hostkey.trusted',
           target: info.hostport,
           detail: { keyType: info.keyType, fingerprint: info.fingerprint },
         }),
-      ),
-    });
-    this.wire(ssh);
-    ssh.connect();
+      );
+
+    const start = (sock?: Duplex): void => {
+      const ssh = new SshSession({
+        host: this.target.host,
+        port: this.target.port,
+        username: this.target.username,
+        password: this.target.password,
+        privateKey: this.target.privateKey,
+        passphrase: this.target.passphrase,
+        command: this.target.command,
+        cols: this.cols,
+        rows: this.rows,
+        sock,
+        verifyHostKey: verifier(),
+      });
+      this.wire(ssh);
+      ssh.connect();
+    };
+
+    if (this.target.jumps?.length) {
+      const hops = this.target.jumps.map((h) => ({ ...h, verifyHostKey: verifier() }));
+      dialThroughJumps(hops, this.target.host, this.target.port)
+        .then(({ sock, dispose }) => {
+          if (this.closed) {
+            dispose();
+            return;
+          }
+          this.jumpDispose = dispose;
+          start(sock);
+        })
+        .catch((err) => {
+          this.fanoutMsg({ t: 'error', message: `jump host: ${(err as Error).message}` });
+          this.close(`jump host failed: ${(err as Error).message}`);
+        });
+      return;
+    }
+    start();
   }
 
   private wire(backend: TerminalBackend): void {
@@ -412,6 +449,7 @@ class LiveSession {
     if (this.antiIdleTimer) clearInterval(this.antiIdleTimer);
     this.autoLogin?.dispose();
     this.recorder?.close();
+    this.jumpDispose?.();
     this.pendingHostKey?.(false);
     this.pendingHostKey = null;
     try {
@@ -559,6 +597,28 @@ class ClientConn {
         const username = conn.sshUsername || resolved.credSshUsername || '';
         if (!username) return this.fail('no SSH username — set one on the connection or its credential');
         const hasAuto = Boolean(resolved.autoLogin);
+
+        let jumps: JumpHopSpec[] | undefined;
+        if (conn.jumpConnectionId) {
+          const chain = await this.deps.repo.jumpChain(conn.id); // throws on cycle / too deep
+          jumps = await Promise.all(
+            chain.map(async (b) => {
+              const bCred = b.credentialId ? await this.deps.creds.get(b.userId, b.credentialId) : undefined;
+              const br = resolveTarget(b, bCred ?? null, config.appSecret);
+              const bu = b.sshUsername || br.credSshUsername || '';
+              if (!bu) throw new Error(`jump host "${b.name}" has no SSH username`);
+              return {
+                host: b.host,
+                port: b.port,
+                username: bu,
+                password: br.password,
+                privateKey: br.privateKey,
+                passphrase: br.passphrase,
+              };
+            }),
+          );
+        }
+
         target = {
           host: conn.host,
           port: conn.port,
@@ -570,6 +630,7 @@ class ClientConn {
           password: resolved.password,
           privateKey: resolved.privateKey,
           passphrase: resolved.passphrase,
+          jumps,
           auditTarget: `${username}@${conn.host}:${conn.port}`,
         };
       } else if (msg.adhoc) {

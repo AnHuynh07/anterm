@@ -1,5 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { connect as tcpConnect } from 'node:net';
 import ssh2, { type Connection } from 'ssh2';
 
 const { Server } = ssh2;
@@ -21,6 +22,8 @@ export async function startSshFixture(opts?: {
   username?: string;
   password?: string;
   port?: number;
+  /** honour direct-tcpip (forwardOut) requests — needed to act as a jump host */
+  allowForward?: boolean;
 }): Promise<SshFixture> {
   const username = opts?.username ?? 'demo';
   const password = opts?.password ?? 'demo';
@@ -39,6 +42,15 @@ export async function startSshFixture(opts?: {
     });
 
     client.on('ready', () => {
+      if (opts?.allowForward) {
+        client.on('tcpip', (accept, reject, info) => {
+          const upstream = tcpConnect(info.destPort, info.destIP, () => {
+            const channel = accept();
+            channel.pipe(upstream).pipe(channel);
+          });
+          upstream.on('error', () => reject?.());
+        });
+      }
       client.on('session', (acceptSession) => {
         const session = acceptSession();
         session.on('pty', (accept) => accept?.());

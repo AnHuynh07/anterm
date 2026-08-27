@@ -166,11 +166,15 @@ export function ConnectionsPage() {
                   ? credData?.credentials.find((k) => k.id === c.credentialId)
                   : undefined;
                 const hasAutoLogin = Boolean(c.loginUsername || linkedCred?.loginUsername);
+                const jumpName = c.jumpConnectionId
+                  ? (conns.find((x) => x.id === c.jumpConnectionId)?.name ?? 'unknown')
+                  : null;
                 return (
                   <tr key={c.id} style={c.color ? { boxShadow: `inset 3px 0 0 ${COLOR_HEX[c.color]}` } : undefined}>
                     <td>
                       <div className="conn-name">{c.name}</div>
                       <div className="mono small muted">
+                        {jumpName && <span title="jump host">↳ via {jumpName} · </span>}
                         {c.sshUsername}@{c.host}:{c.port}
                       </div>
                       {c.tags.length > 0 && (
@@ -265,6 +269,7 @@ export function ConnectionsPage() {
           initial={editing === 'new' ? undefined : editing}
           groups={allGroups}
           credentials={credData?.credentials ?? []}
+          connections={conns}
           busy={save.isPending}
           error={save.error ? (save.error as Error).message : undefined}
           onCancel={() => setEditing(null)}
@@ -282,6 +287,7 @@ function toBody(value: ConnectionFormValue) {
     port: value.port,
     sshUsername: value.sshUsername.trim(),
     credentialId: value.credentialId || null,
+    jumpConnectionId: value.jumpConnectionId || null,
     authType: value.authType as AuthType,
     initCommand: value.initCommand.trim() || null,
     loginUsername: value.loginUsername.trim() || null,

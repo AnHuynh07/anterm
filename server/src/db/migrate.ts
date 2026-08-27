@@ -178,6 +178,14 @@ const migrations: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS audit_events_action_idx ON audit_events (action, ts);
     `,
   },
+  {
+    id: '0008_jump_host',
+    sql: /* sql */ `
+      ALTER TABLE connections ADD COLUMN jump_connection_id TEXT
+        REFERENCES connections(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS connections_jump_idx ON connections (jump_connection_id);
+    `,
+  },
 ];
 
 export function runMigrations(raw: Database.Database): void {

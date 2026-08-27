@@ -65,6 +65,7 @@ export interface Connection {
   port: number;
   sshUsername: string;
   credentialId: string | null;
+  jumpConnectionId: string | null;
   authType: AuthType;
   hasSecret: boolean;
   hasPassphrase: boolean;

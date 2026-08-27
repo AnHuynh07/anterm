@@ -17,6 +17,7 @@ const upsertBody = z.object({
   port: z.number().int().positive().max(65535).default(22),
   sshUsername: z.string().max(128).default(''),
   credentialId: z.string().uuid().nullish(),
+  jumpConnectionId: z.string().uuid().nullish(),
   authType: z.enum(['password', 'key', 'agent']),
   secret: z.string().max(32_768).nullish(),
   passphrase: z.string().max(4096).nullish(),
@@ -62,6 +63,25 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     const share = actor.role === 'admin' || conn.userId === actor.id ? null : (await shares.getFor(id, actor.id)) ?? null;
     const access = connAccess(actor, conn.userId, share);
     return access.canView ? { conn, access } : null;
+  };
+
+  /** Returns an error string if `jumpId` is not a usable bastion for connection `selfId`. */
+  const validateJump = async (actor: Actor, jumpId: string | null | undefined, selfId?: string): Promise<string | null> => {
+    if (!jumpId) return null;
+    if (jumpId === selfId) return 'a connection cannot jump through itself';
+    const j = await loadForActor(actor, jumpId);
+    if (!j) return 'jump host connection not found or not visible to you';
+    if (selfId) {
+      const seen = new Set<string>([jumpId]);
+      let hop: string | null | undefined = j.conn.jumpConnectionId;
+      while (hop) {
+        if (hop === selfId) return 'that would create a jump host loop';
+        if (seen.has(hop)) break;
+        seen.add(hop);
+        hop = (await repo.getAny(hop))?.jumpConnectionId ?? null;
+      }
+    }
+    return null;
   };
 
   const enrich = (dto: ConnectionDto, access: ReturnType<typeof connAccess>, ownerName?: string): ConnectionDto => ({
@@ -201,6 +221,8 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     const parsed = upsertBody.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid payload' });
     if (!hostAllowed(ctx, parsed.data.host)) return reply.code(400).send({ error: 'host not allowed by server policy' });
+    const jumpErr = await validateJump(user, parsed.data.jumpConnectionId);
+    if (jumpErr) return reply.code(400).send({ error: jumpErr });
     try {
       const created = await repo.create(user.id, parsed.data as ConnectionInput);
       ctx.activity.record({ actor: auditActor(req), action: 'connection.create', target: created.name });
@@ -221,6 +243,8 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     const loaded = await loadForActor(user, id);
     if (!loaded) return reply.code(404).send({ error: 'connection not found' });
     if (!loaded.access.canEdit) return reply.code(403).send({ error: 'you do not have edit access to this connection' });
+    const jumpErr = await validateJump(user, parsed.data.jumpConnectionId, id);
+    if (jumpErr) return reply.code(400).send({ error: jumpErr });
 
     try {
       const updated = await repo.updateAny(id, parsed.data as ConnectionInput);

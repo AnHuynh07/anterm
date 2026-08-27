@@ -14,6 +14,7 @@ export interface ConnectionInput {
   port: number;
   sshUsername: string;
   credentialId?: string | null;
+  jumpConnectionId?: string | null;
   authType: AuthType;
   /** raw password or private key PEM; omitted on edit means "keep existing" */
   secret?: string | null;
@@ -61,6 +62,7 @@ export interface ConnectionDto {
   port: number;
   sshUsername: string;
   credentialId: string | null;
+  jumpConnectionId: string | null;
   authType: AuthType;
   hasSecret: boolean;
   hasPassphrase: boolean;
@@ -93,6 +95,7 @@ export function toDto(c: Connection): ConnectionDto {
     port: c.port,
     sshUsername: c.sshUsername,
     credentialId: c.credentialId ?? null,
+    jumpConnectionId: c.jumpConnectionId ?? null,
     authType: c.authType,
     hasSecret: Boolean(c.secretEnc),
     hasPassphrase: Boolean(c.passphraseEnc),
@@ -135,6 +138,26 @@ export class ConnectionRepo {
     return this.db.query.connections.findFirst({ where: eq(connections.id, id) });
   }
 
+  /**
+   * Bastions to tunnel through to reach connection `id`, in dial order
+   * (outermost first). Throws on a cycle or a chain longer than `maxDepth`.
+   */
+  async jumpChain(id: string, maxDepth = 4): Promise<Connection[]> {
+    const chain: Connection[] = [];
+    const seen = new Set<string>([id]);
+    let cur = await this.getAny(id);
+    while (cur?.jumpConnectionId) {
+      if (seen.has(cur.jumpConnectionId)) throw new Error('jump host chain has a cycle');
+      if (chain.length >= maxDepth) throw new Error(`jump host chain is too long (max ${maxDepth})`);
+      seen.add(cur.jumpConnectionId);
+      const next = await this.getAny(cur.jumpConnectionId);
+      if (!next) break;
+      chain.push(next);
+      cur = next;
+    }
+    return chain.reverse();
+  }
+
   /** Connections an actor may see: all (admin), else owned + explicitly shared. */
   listVisible(opts: { userId: string; admin: boolean; sharedIds: string[] }): Promise<Connection[]> {
     if (opts.admin) {
@@ -160,6 +183,7 @@ export class ConnectionRepo {
       port: input.port,
       sshUsername: input.sshUsername,
       credentialId: input.credentialId || null,
+      jumpConnectionId: input.jumpConnectionId || null,
       authType: input.authType,
       secretEnc: this.enc(input.secret),
       passphraseEnc: this.enc(input.passphrase),
@@ -193,6 +217,7 @@ export class ConnectionRepo {
       port: input.port,
       sshUsername: input.sshUsername,
       credentialId: input.credentialId || null,
+      jumpConnectionId: input.jumpConnectionId || null,
       authType: input.authType,
       initCommand: input.initCommand ?? null,
       loginUsername: input.loginUsername || null,

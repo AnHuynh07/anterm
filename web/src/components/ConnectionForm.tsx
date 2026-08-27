@@ -8,6 +8,7 @@ export interface ConnectionFormValue {
   port: number;
   sshUsername: string;
   credentialId: string;
+  jumpConnectionId: string;
   authType: AuthType;
   secret: string;
   passphrase: string;
@@ -29,19 +30,30 @@ interface Props {
   initial?: Connection;
   groups?: string[];
   credentials?: Credential[];
+  connections?: Connection[];
   busy?: boolean;
   error?: string;
   onCancel: () => void;
   onSubmit: (value: ConnectionFormValue) => void;
 }
 
-export function ConnectionForm({ initial, groups = [], credentials = [], busy, error, onCancel, onSubmit }: Props) {
+export function ConnectionForm({
+  initial,
+  groups = [],
+  credentials = [],
+  connections = [],
+  busy,
+  error,
+  onCancel,
+  onSubmit,
+}: Props) {
   const [v, setV] = useState<ConnectionFormValue>({
     name: initial?.name ?? '',
     host: initial?.host ?? '',
     port: initial?.port ?? 22,
     sshUsername: initial?.sshUsername ?? '',
     credentialId: initial?.credentialId ?? '',
+    jumpConnectionId: initial?.jumpConnectionId ?? '',
     authType: initial?.authType ?? 'password',
     secret: '',
     passphrase: '',
@@ -277,6 +289,22 @@ export function ConnectionForm({ initial, groups = [], credentials = [], busy, e
         </button>
         {showAdvanced && (
           <div className="section-body">
+            {connections.filter((c) => c.id !== initial?.id).length > 0 && (
+              <label>
+                Connect through (jump host){' '}
+                <span className="muted small">— tunnel via another saved connection (ProxyJump)</span>
+                <select value={v.jumpConnectionId} onChange={(e) => set('jumpConnectionId', e.target.value)}>
+                  <option value="">Direct — no jump host</option>
+                  {connections
+                    .filter((c) => c.id !== initial?.id)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.host})
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
             <label>
               Run a single command (exec mode) <span className="muted small">— instead of an interactive shell</span>
               <input value={v.initCommand} onChange={(e) => set('initCommand', e.target.value)} placeholder="e.g. show tech-support" />
