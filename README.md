@@ -67,6 +67,8 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 
 ## Quick start (development)
 
+> 🇻🇳 Hướng dẫn cài đặt & sử dụng chi tiết bằng tiếng Việt: **[docs/HUONG-DAN.md](docs/HUONG-DAN.md)**
+
 ```bash
 npm install
 cp .env.example .env          # then edit ANTERM_APP_SECRET / ADMIN_PASSWORD
