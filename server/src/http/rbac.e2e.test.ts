@@ -206,4 +206,57 @@ describe('RBAC + sharing', () => {
     });
     expect(msg).toMatch(/read-only|cannot open/i);
   });
+
+  it('vault export/import: admin only, re-auth, plaintext ack, encrypted round-trip', async () => {
+    // non-admin -> 403
+    expect((await asUser('opa').send('POST', '/vault/export', { password: 'opa-password', format: 'json', acknowledgePlaintext: true })).status).toBe(403);
+
+    // wrong password -> 403
+    expect((await asUser('boss').send('POST', '/vault/export', { password: 'nope', format: 'encrypted', passphrase: 'pp-123456' })).status).toBe(403);
+
+    // plaintext without acknowledgement -> 400
+    expect((await asUser('boss').send('POST', '/vault/export', { password: 'boss-password', format: 'json' })).status).toBe(400);
+
+    // encrypted export -> import replace: summary shows the connection updated
+    const exp = await asUser('boss').send('POST', '/vault/export', {
+      password: 'boss-password',
+      format: 'encrypted',
+      passphrase: 'archive-pass-1',
+    });
+    expect(exp.status).toBe(200);
+    const archive = await exp.text();
+
+    const imp = await asUser('boss').send('POST', '/vault/import', {
+      password: 'boss-password',
+      format: 'encrypted',
+      data: archive,
+      passphrase: 'archive-pass-1',
+      mode: 'replace',
+    });
+    expect(imp.status).toBe(200);
+    const summary = await imp.json();
+    expect(summary.connections.updated + summary.connections.created).toBeGreaterThan(0);
+    expect(summary.errors).toEqual([]);
+
+    // wrong passphrase on import -> 400
+    const bad = await asUser('boss').send('POST', '/vault/import', {
+      password: 'boss-password',
+      format: 'encrypted',
+      data: archive,
+      passphrase: 'WRONG',
+      mode: 'skip',
+    });
+    expect(bad.status).toBe(400);
+
+    const events = (await (await asUser('boss').GET('/activity')).json()).events as { action: string }[];
+    expect(events.some((e) => e.action === 'vault.export')).toBe(true);
+    expect(events.some((e) => e.action === 'vault.import')).toBe(true);
+  });
+
+  it('downloads a database backup (admin only)', async () => {
+    expect((await asUser('opa').GET('/vault/db-backup')).status).toBe(403);
+    const res = await asUser('boss').GET('/vault/db-backup');
+    expect(res.status).toBe(200);
+    expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+  });
 });

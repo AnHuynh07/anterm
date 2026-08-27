@@ -59,6 +59,9 @@ const schema = z.object({
   recordDir: z.string().optional(), // default: <dbdir>/recordings
   recordRetentionDays: z.coerce.number().nonnegative().default(30), // 0 = keep forever
 
+  // allow admins to export/import the vault with decrypted secrets + download a DB backup
+  allowSecretExport: bool.default(true),
+
   // WeTTY-style ad-hoc SSH defaults
   ssh: z.object({
     host: z.string().optional(),
@@ -110,6 +113,10 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     .option('record', { type: 'boolean', describe: 'Record session I/O + command log (default true)' })
     .option('record-dir', { type: 'string', describe: 'Directory for .cast recordings' })
     .option('record-retention-days', { type: 'number', describe: 'Delete recordings older than N days (0 = keep)' })
+    .option('allow-secret-export', {
+      type: 'boolean',
+      describe: 'Allow admins to export the vault with decrypted secrets + a DB backup (default true)',
+    })
     .option('ssl-key', { type: 'string' })
     .option('ssl-cert', { type: 'string' })
     .option('ssh-host', { type: 'string', describe: 'Ad-hoc mode: default SSH host' })
@@ -146,6 +153,7 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     record: parsed.record ?? fileCfg.record,
     recordDir: parsed.recordDir ?? fileCfg.recordDir,
     recordRetentionDays: parsed.recordRetentionDays ?? fileCfg.recordRetentionDays,
+    allowSecretExport: parsed.allowSecretExport ?? fileCfg.allowSecretExport,
     ssh: {
       host: parsed.sshHost ?? fileSsh.host,
       port: parsed.sshPort ?? fileSsh.port,

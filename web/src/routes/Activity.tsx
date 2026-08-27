@@ -23,13 +23,17 @@ const ACTION_GROUPS: Record<string, string> = {
   'user.password_reset': 'user',
   'hostkey.trusted': 'hostkey',
   'hostkey.changed_accepted': 'hostkey',
+  'vault.export': 'vault',
+  'vault.import': 'vault',
+  'vault.db_backup': 'vault',
 };
 
-const FILTERS = ['all', 'auth', 'connection', 'credential', 'user', 'hostkey'] as const;
+const FILTERS = ['all', 'auth', 'connection', 'credential', 'user', 'hostkey', 'vault'] as const;
 
 function tone(action: string) {
   if (action === 'auth.login_failed' || action.endsWith('.delete') || action === 'hostkey.changed_accepted')
     return 'down' as const;
+  if (action.startsWith('vault.')) return 'warn' as const;
   if (action.startsWith('user.') || action === 'connection.share') return 'info' as const;
   if (action.startsWith('hostkey.')) return 'warn' as const;
   return 'neutral' as const;

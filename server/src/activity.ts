@@ -23,7 +23,10 @@ export type AuditAction =
   | 'user.password_reset'
   | 'hostkey.trusted'
   | 'hostkey.changed_accepted'
-  | 'session.recordings_pruned';
+  | 'session.recordings_pruned'
+  | 'vault.export'
+  | 'vault.import'
+  | 'vault.db_backup';
 
 export interface AuditActor {
   id?: string | null;

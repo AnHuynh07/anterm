@@ -2,10 +2,11 @@ import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
+import { VaultBackup } from '../components/VaultBackup';
 import type { Snippet } from '../types';
 
 export function SettingsPage() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [currentPassword, setCurrent] = useState('');
   const [newPassword, setNew] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -70,6 +71,8 @@ export function SettingsPage() {
       </form>
 
       <SnippetsCard />
+
+      {isAdmin && <VaultBackup />}
     </div>
   );
 }

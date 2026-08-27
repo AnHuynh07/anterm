@@ -18,6 +18,7 @@ import { registerSessionRoutes } from './routes/sessions.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerActivityRoutes } from './routes/activity.js';
+import { registerVaultRoutes } from './routes/vault.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -95,6 +96,7 @@ export async function buildApp(ctx: AppContext): Promise<AnyFastify> {
     registerAuthRoutes(scoped, ctx);
     registerUserRoutes(scoped, ctx);
     registerActivityRoutes(scoped, ctx);
+    registerVaultRoutes(scoped, ctx);
     registerCredentialRoutes(scoped, ctx);
     registerSnippetRoutes(scoped, ctx);
     registerConnectionRoutes(scoped, ctx);

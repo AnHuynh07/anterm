@@ -25,6 +25,11 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
   behalf and never revealed to a shared user
 - **Activity log** — append-only audit of logins, connection / credential / user changes,
   sharing and host-key trust; admin-only view with filters and CSV export
+- **Vault backup** (admin, re-auth) — export every connection + credential **with decrypted
+  secrets** as an encrypted `.anterm` archive (passphrase you choose, portable across a
+  change of `ANTERM_APP_SECRET`) or plaintext JSON/CSV; re-import elsewhere; download the
+  whole SQLite database. Disable entirely with `--allow-secret-export=false`. CLI:
+  `npm -w server run vault -- export backup.anterm --passphrase …`
 - **Connection manager** — save SSH targets per user, organised by **group / tags / colour
   label** with search; credentials encrypted at rest with AES-256-GCM
 - **Credential vault** — define a login profile (SSH auth + login automation) once and attach
@@ -114,6 +119,7 @@ for the full list. Common options:
 | `--resume-grace-sec` | `ANTERM_RESUME_GRACE_SEC` | `90` | Keep SSH alive N s after a WS drop for resume (0 = off) |
 | `--session-ttl-hours` | `ANTERM_SESSION_TTL_HOURS` | `12` | Login session lifetime |
 | `--allow-iframe` | `ANTERM_ALLOW_IFRAME` | `false` | Allow embedding in an iframe |
+| `--allow-secret-export` | `ANTERM_ALLOW_SECRET_EXPORT` | `true` | Let admins export the vault with decrypted secrets + a DB backup |
 | `--record` / `--no-record` | `ANTERM_RECORD` | `true` | Record session I/O + command log |
 | `--record-dir` | `ANTERM_RECORD_DIR` | `<db dir>/recordings` | Where `.cast` files are stored |
 | `--record-retention-days` | `ANTERM_RECORD_RETENTION_DAYS` | `30` | Delete recordings + old sessions after N days (0 = keep) |
@@ -168,7 +174,9 @@ Test locally without real gear: `npx tsx server/test/dev-target.ts 2223 --device
 - **A browser SSH gateway is sensitive.** Always serve over TLS and restrict network exposure
   (VPN / private network / IP allowlist at the proxy).
 - Stored SSH credentials are encrypted with a key derived from `ANTERM_APP_SECRET`.
-  **If that secret is lost, stored credentials cannot be decrypted.** Back it up.
+  **If that secret is lost, stored credentials cannot be decrypted.** Back it up — or take an
+  **encrypted vault export** (Settings → Backup, admin), which is portable across a new secret.
+  On a locked-down deployment set `--allow-secret-export=false` to remove that capability.
 - Host keys are trust-on-first-use and stored per `host:port`. A changed key blocks the
   connection until a user explicitly accepts the new one.
 - Change the bootstrap admin password on first login (Settings → Change password); doing so
