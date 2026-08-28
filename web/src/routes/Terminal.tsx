@@ -8,7 +8,7 @@ import { TerminalView } from '../components/Terminal';
 import { COLOR_HEX } from '../components/colors';
 
 export function TerminalPage() {
-  const { connectionId } = useParams();
+  const { connectionId, sharedToken } = useParams();
   const navigate = useNavigate();
   const { tabs, activeKey, openTab, closeTab, setActive, broadcast, setBroadcast } = useTerminalTabs();
 
@@ -17,15 +17,21 @@ export function TerminalPage() {
     queryFn: () => api<{ connections: Connection[] }>('/connections'),
   });
 
-  // Deep-link support: /terminal/:connectionId opens a fresh tab then normalises the URL.
+  // Deep-link support: /terminal/:connectionId (or /terminal/shared/:token) opens a
+  // fresh tab then normalises the URL.
   const handled = useRef<string | null>(null);
   useEffect(() => {
-    if (!connectionId || handled.current === connectionId) return;
-    handled.current = connectionId;
-    const c = data?.connections.find((x) => x.id === connectionId);
-    openTab({ connectionId, title: c?.name ?? 'session', color: c?.color ?? undefined });
+    const key = connectionId ?? (sharedToken ? `s:${sharedToken}` : null);
+    if (!key || handled.current === key) return;
+    handled.current = key;
+    if (sharedToken) {
+      openTab({ sharedToken, title: 'shared session' });
+    } else if (connectionId) {
+      const c = data?.connections.find((x) => x.id === connectionId);
+      openTab({ connectionId, title: c?.name ?? 'session', color: c?.color ?? undefined });
+    }
     navigate('/terminal', { replace: true });
-  }, [connectionId, data, openTab, navigate]);
+  }, [connectionId, sharedToken, data, openTab, navigate]);
 
   // Every open tab keeps a live terminal while this page is mounted (so tab
   // switching and Broadcast keep all sessions connected). New tabs are added as
@@ -105,7 +111,13 @@ export function TerminalPage() {
             className="terminal-slot"
             style={{ visibility: t.key === activeKey ? 'visible' : 'hidden', zIndex: t.key === activeKey ? 1 : 0 }}
           >
-            <TerminalView tabKey={t.key} connectionId={t.connectionId} adhoc={t.adhoc} onExit={() => undefined} />
+            <TerminalView
+              tabKey={t.key}
+              connectionId={t.connectionId}
+              adhoc={t.adhoc}
+              sharedToken={t.sharedToken}
+              onExit={() => undefined}
+            />
           </div>
         ))}
       </div>

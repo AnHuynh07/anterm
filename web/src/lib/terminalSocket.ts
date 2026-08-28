@@ -7,6 +7,8 @@ export interface TerminalSocketHandlers {
   onHostKey: (msg: Extract<ServerMessage, { t: 'hostkey-prompt' }>) => void;
   onError: (message: string) => void;
   onToken?: (token: string) => void;
+  onShared?: (info: { readOnly: boolean; owner?: string }) => void;
+  onPresence?: (viewers: string[]) => void;
 }
 
 /**
@@ -75,7 +77,11 @@ export class TerminalSocket {
       case 'attached':
         this.token = msg.token;
         this.handlers.onToken?.(msg.token);
-        if (msg.resumed) this.handlers.onStatus('ready', 'reconnected');
+        this.handlers.onShared?.({ readOnly: Boolean(msg.readOnly), owner: msg.owner });
+        if (msg.resumed && !msg.readOnly) this.handlers.onStatus('ready', 'reconnected');
+        break;
+      case 'presence':
+        this.handlers.onPresence?.(msg.viewers);
         break;
       case 'status':
         if (msg.state === 'closed') this.sessionEnded = true;
@@ -107,6 +113,10 @@ export class TerminalSocket {
 
   answerHostKey(accept: boolean): void {
     this.send({ t: 'hostkey', accept });
+  }
+
+  setShared(enabled: boolean): void {
+    this.send({ t: 'share', enabled });
   }
 
   close(): void {

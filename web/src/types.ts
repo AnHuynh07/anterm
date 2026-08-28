@@ -139,7 +139,8 @@ export interface HostKeyPromptMsg {
 
 export type ServerMessage =
   | { t: 'status'; state: 'connecting' | 'ready' | 'closed'; detail?: string }
-  | { t: 'attached'; token: string; resumed?: boolean }
+  | { t: 'attached'; token: string; resumed?: boolean; readOnly?: boolean; owner?: string }
+  | { t: 'presence'; viewers: string[] }
   | HostKeyPromptMsg
   | { t: 'error'; message: string }
   | { t: 'pong' };
@@ -149,6 +150,7 @@ export type ClientMessage =
   | { t: 'attach'; token: string; cols: number; rows: number }
   | { t: 'resize'; cols: number; rows: number }
   | { t: 'hostkey'; accept: boolean }
+  | { t: 'share'; enabled: boolean }
   | { t: 'ping' };
 
 export interface AdhocTarget {

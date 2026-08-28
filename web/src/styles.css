@@ -960,6 +960,25 @@ code {
   background: rgba(148, 163, 184, 0.16);
   color: #e2e8f0;
 }
+.term-observing,
+.term-watchers {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.term-observing {
+  background: rgba(217, 119, 6, 0.2);
+  color: #fbbf24;
+}
+.term-watchers {
+  background: rgba(99, 102, 241, 0.22);
+  color: #a5b4fc;
+}
+.term-status .btn.toggle-on {
+  background: rgba(99, 102, 241, 0.25);
+  color: #c7d2fe;
+}
 
 /* scrollback finder */
 .term-search {

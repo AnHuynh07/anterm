@@ -45,6 +45,7 @@ const router = createBrowserRouter(
         { path: 'connections', element: <ConnectionsPage /> },
         { path: 'credentials', element: <CredentialsPage /> },
         { path: 'terminal/:connectionId', element: <TerminalPage /> },
+        { path: 'terminal/shared/:sharedToken', element: <TerminalPage /> },
         { path: 'terminal', element: <TerminalPage /> },
         { path: 'sessions', element: <SessionsPage /> },
         { path: 'users', element: <AdminOnly><UsersPage /></AdminOnly> },

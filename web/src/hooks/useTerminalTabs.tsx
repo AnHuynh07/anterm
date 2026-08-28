@@ -5,6 +5,8 @@ export interface TermTab {
   key: string;
   connectionId?: string;
   adhoc?: AdhocTarget;
+  /** watching someone else's shared session (read-only) */
+  sharedToken?: string;
   title: string;
   color?: ConnectionColor;
 }

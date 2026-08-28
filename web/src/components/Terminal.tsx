@@ -26,10 +26,11 @@ interface Props {
   tabKey: string;
   connectionId?: string;
   adhoc?: AdhocTarget;
+  sharedToken?: string;
   onExit?: (reason: string) => void;
 }
 
-export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
+export function TerminalView({ tabKey, connectionId, adhoc, sharedToken, onExit }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const tabs = useTerminalTabs();
   const broadcastRef = useRef(tabs.broadcast);
@@ -48,6 +49,14 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
   });
   const [showSnippets, setShowSnippets] = useState(false);
   const [pendingSend, setPendingSend] = useState<{ text: string; exec: boolean } | null>(null);
+  const [readOnly, setReadOnly] = useState(Boolean(sharedToken));
+  const [owner, setOwner] = useState<string>();
+  const [viewers, setViewers] = useState<string[]>([]);
+  const [shareEnabled, setShareEnabled] = useState(false);
+  const [sessionToken, setSessionToken] = useState<string>();
+  const [shareCopied, setShareCopied] = useState(false);
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchInfo, setSearchInfo] = useState<{ index: number; count: number }>({ index: -1, count: 0 });
@@ -202,15 +211,24 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
           },
           onHostKey: (msg) => setHostKey(msg),
           onError: (message) => term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`),
-          onToken: (token) => tabsRef.current.setToken(tabKey, token),
+          onToken: (token) => {
+            tabsRef.current.setToken(tabKey, token);
+            setSessionToken(token);
+          },
+          onShared: ({ readOnly: ro, owner: o }) => {
+            setReadOnly(ro);
+            setOwner(o);
+          },
+          onPresence: (v) => setViewers(v),
         },
-        tabsRef.current.getToken(tabKey),
+        sharedToken ?? tabsRef.current.getToken(tabKey),
       );
       socketRef.current = socket;
       socket.connect();
       cleanups.push(tabsRef.current.registerSink(tabKey, { sendData: (s) => socket.sendData(s) }));
 
       const disposeData = term.onData((d) => {
+        if (readOnlyRef.current) return;
         socket.sendData(d);
         if (broadcastRef.current) tabsRef.current.fanoutInput(tabKey, d);
       });
@@ -253,7 +271,25 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
       termRef.current = null;
       searchRef.current = null;
     };
-  }, [tabKey, connectionId, adhoc]);
+  }, [tabKey, connectionId, adhoc, sharedToken]);
+
+  function toggleShare() {
+    const next = !shareEnabled;
+    setShareEnabled(next);
+    socketRef.current?.setShared(next);
+    if (next && sessionToken) {
+      const link = `${location.origin}/terminal/shared/${sessionToken}`;
+      navigator.clipboard?.writeText(link).then(
+        () => {
+          setShareCopied(true);
+          setTimeout(() => setShareCopied(false), 2500);
+        },
+        () => undefined,
+      );
+    } else {
+      setViewers([]);
+    }
+  }
 
   return (
     <div className="terminal-wrap">
@@ -279,8 +315,28 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
             {statusDetail && <span className="muted">{statusDetail}</span>}
           </>
         )}
+        {readOnly && (
+          <span className="term-observing" title={`live session owned by ${owner ?? 'someone'}`}>
+            👁 read-only{owner ? ` · ${owner}` : ''}
+          </span>
+        )}
+        {!readOnly && viewers.length > 0 && (
+          <span className="term-watchers" title={viewers.join(', ')}>
+            👁 {viewers.length} watching
+          </span>
+        )}
         <span className="spacer" />
-        {(snippetData?.snippets.length ?? 0) > 0 && (
+        {!readOnly && !sharedToken && (
+          <button
+            className={`btn ghost sm ${shareEnabled ? 'toggle-on' : ''}`}
+            title={shareEnabled ? 'Stop sharing this session' : 'Share a read-only link to this live session'}
+            disabled={!sessionToken}
+            onClick={toggleShare}
+          >
+            {shareCopied ? 'Link copied ✓' : shareEnabled ? 'Sharing ✓' : 'Share'}
+          </button>
+        )}
+        {(snippetData?.snippets.length ?? 0) > 0 && !readOnly && (
           <div className="snippet-menu">
             <button className="btn ghost sm" onClick={() => setShowSnippets((s) => !s)}>
               Snippets ▾

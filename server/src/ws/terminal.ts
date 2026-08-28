@@ -161,6 +161,7 @@ class LiveSession {
   private clients = new Set<ClientConn>();
   private pendingHostKey: ((accept: boolean) => void) | null = null;
   private jumpDispose: (() => void) | null = null;
+  private shared = false;
 
   constructor(
     private readonly ctx: AppContext,
@@ -176,6 +177,24 @@ class LiveSession {
 
   get userId(): string {
     return this.user.id;
+  }
+
+  get isShared(): boolean {
+    return this.shared;
+  }
+
+  get ownerName(): string {
+    return this.user.username;
+  }
+
+  setShared(enabled: boolean): void {
+    this.shared = enabled;
+    this.fanoutPresence();
+  }
+
+  private fanoutPresence(): void {
+    const viewers = [...this.clients].filter((c) => c.isObserver).map((c) => c.label);
+    this.fanoutMsg({ t: 'presence', viewers });
   }
 
   connect(firstClient: ClientConn): void {
@@ -338,11 +357,16 @@ class LiveSession {
     const missed = Buffer.concat(this.ring).subarray(Math.min(skip, this.ringBytes));
     if (missed.length) client.sendBinary(missed);
     if (this.ready) client.send({ t: 'status', state: 'ready' });
+    this.fanoutPresence();
   }
 
   detach(client: ClientConn): void {
     this.clients.delete(client);
-    if (this.clients.size > 0 || this.closed) return;
+    this.fanoutPresence();
+    if (this.closed) return;
+    // keep the session alive only while an owner-side client is connected;
+    // observers alone must not hold an SSH session open.
+    if ([...this.clients].some((c) => !c.isObserver)) return;
     this.detachTotal = this.producedTotal;
     const grace = this.ctx.config.resumeGraceSec;
     if (grace <= 0) {
@@ -478,6 +502,8 @@ class ClientConn {
   readonly ip?: string;
   private live: LiveSession | null = null;
   private handledOpen = false;
+  /** true when attached to someone else's shared session (read-only) */
+  observer = false;
 
   constructor(
     private readonly ws: WebSocket,
@@ -488,6 +514,13 @@ class ClientConn {
     private readonly registry: Map<string, LiveSession>,
   ) {
     this.ip = clientIp(req, ctx.config.trustProxy);
+  }
+
+  get isObserver(): boolean {
+    return this.observer;
+  }
+  get label(): string {
+    return this.user.username;
   }
 
   start(): void {
@@ -517,6 +550,7 @@ class ClientConn {
 
   private async onMessage(data: RawData, isBinary: boolean): Promise<void> {
     if (isBinary) {
+      if (this.observer) return; // shared viewers are read-only
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
       this.live?.write(buf);
       return;
@@ -534,20 +568,35 @@ class ClientConn {
         this.send({ t: 'pong' });
         return;
       case 'resize':
-        this.live?.resize(msg.cols, msg.rows);
+        if (!this.observer) this.live?.resize(msg.cols, msg.rows);
         return;
       case 'hostkey':
-        this.live?.answerHostKey(msg.accept);
+        if (!this.observer) this.live?.answerHostKey(msg.accept);
+        return;
+      case 'share':
+        if (this.live && this.live.userId === this.user.id) this.live.setShared(msg.enabled);
         return;
       case 'attach': {
         const live = this.registry.get(msg.token);
-        if (!live || live.userId !== this.user.id) {
+        if (!live) {
           this.send({ t: 'status', state: 'closed', detail: 'session no longer available' });
           return;
         }
+        const owner = live.userId === this.user.id;
+        if (!owner && !live.isShared) {
+          this.send({ t: 'status', state: 'closed', detail: 'this session is not shared' });
+          return;
+        }
         this.live = live;
-        live.attach(this, msg.cols, msg.rows);
-        this.send({ t: 'attached', token: live.token, resumed: true });
+        this.observer = !owner;
+        live.attach(this, this.observer ? undefined : msg.cols, this.observer ? undefined : msg.rows);
+        this.send({
+          t: 'attached',
+          token: live.token,
+          resumed: true,
+          readOnly: this.observer || undefined,
+          owner: this.observer ? live.ownerName : undefined,
+        });
         return;
       }
       case 'open':
