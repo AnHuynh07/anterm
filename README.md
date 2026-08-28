@@ -45,6 +45,8 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 - **Config-change capture & diff** — snapshot a device's running config on demand or
   automatically after a `write mem`; browse the timeline and diff any two versions
 - **Session sharing** — hand a colleague a link to watch your live terminal read-only
+- **Per-device runbook** — markdown notes (console location, reboot time, gotchas, links)
+  rendered in a panel beside the live terminal
 - **Colour labels** — mark a connection red/"production"; its tab and a banner above the
   terminal turn red so you know which box you're typing on
 - **Import / export** the inventory as JSON or CSV (no secrets; credentials referenced by name)
