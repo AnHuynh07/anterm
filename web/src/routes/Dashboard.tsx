@@ -142,7 +142,10 @@ export function DashboardPage() {
                   style={openable ? undefined : { cursor: 'default' }}
                   title={r?.detail ?? ''}
                 >
-                  <div className="dash-dot" />
+                  <div className="dash-top">
+                    <span className="dash-dot" />
+                    <span className={`dash-proto ${c.protocol}`}>{c.protocol}</span>
+                  </div>
                   <div className="dash-name">{c.name}</div>
                   <div className="mono small muted">
                     {c.host}:{c.port}
