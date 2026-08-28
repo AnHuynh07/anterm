@@ -101,6 +101,10 @@ In dev the login form is prefilled with `admin` / `changeme` for convenience
 (never in a production build). Override with `VITE_DEV_USER` / `VITE_DEV_PASSWORD`
 in `web/.env.local`.
 
+**Windows:** run `scripts/install-windows.ps1` from PowerShell — it installs Git +
+Node LTS via winget, clones, `npm install`, generates `.env`, builds, and can start the
+server (`-Start`). See [docs/HUONG-DAN.md §2b](docs/HUONG-DAN.md).
+
 Open http://localhost:5173 and sign in with `ADMIN_USER` / `ADMIN_PASSWORD`.
 
 The Vite dev server proxies `/api` and `/ws` to the backend, so you only need the one URL.

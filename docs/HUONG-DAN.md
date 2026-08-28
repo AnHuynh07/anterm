@@ -13,8 +13,10 @@ Hướng dẫn dành cho người **tải mã nguồn từ GitHub về** và mu�
 |---|---|
 | **Node.js** | 20 trở lên (`node -v`) |
 | **npm** | đi kèm Node |
-| **Trình biên dịch C** | `better-sqlite3` và `argon2` là native module — cần build tools: **macOS** `xcode-select --install` · **Debian/Ubuntu** `sudo apt install build-essential python3` · **Windows** dùng WSL2 hoặc "Desktop development with C++" |
-| Hệ điều hành | macOS / Linux / WSL2. Windows thuần chạy được nhưng ít được kiểm thử |
+| **Trình biên dịch C** | `better-sqlite3` và `argon2` là native module. **macOS** `xcode-select --install` · **Debian/Ubuntu** `sudo apt install build-essential python3` · **Windows** thường không cần (có bản build sẵn) |
+| Hệ điều hành | macOS / Linux / Windows 10+ / WSL2 |
+
+**Windows:** dùng script tự động ở **mục 2b** — không cần làm theo các bước thủ công bên dưới.
 
 Không cần cài SSH server hay Docker để chạy thử.
 
@@ -28,6 +30,32 @@ cd anterm
 ```
 
 Hoặc tải file ZIP từ GitHub (nút **Code → Download ZIP**) rồi giải nén và `cd` vào thư mục.
+
+---
+
+## 2b. Windows — script cài tự động
+
+Mở **PowerShell** (người dùng thường, không cần admin) và chạy:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+iwr https://raw.githubusercontent.com/AnHuynh07/anterm/main/scripts/install-windows.ps1 -OutFile install-windows.ps1
+.\install-windows.ps1 -Start
+```
+
+Script sẽ: cài **Git** + **Node.js LTS** qua `winget` nếu thiếu → clone repo → `npm install`
+→ tạo `.env` với secret + mật khẩu admin ngẫu nhiên → `npm run build` → tạo `start-anterm.bat`
+→ (với `-Start`) chạy server luôn. In ra mật khẩu admin ở cuối.
+
+Tham số hữu ích: `-Port 8080` · `-AdminUser boss` · `-AllowHosts "10.0.0.5,sw1"` ·
+`-AllowTelnet` · `-NoBuild` (chỉ chuẩn bị, chạy dev sau) · `-Path D:\apps\anterm`.
+
+Chạy lại script bất cứ lúc nào để cập nhật (nó `git pull` + build lại, **không đụng `.env`**).
+
+> `better-sqlite3` và `argon2` có sẵn bản build cho Windows x64 nên **thường không cần
+> Visual Studio Build Tools**. Nếu vẫn muốn WSL2: bỏ qua mục này, làm như Linux ở các mục dưới.
+
+Các lần sau chỉ cần double-click **`start-anterm.bat`** trong thư mục cài.
 
 ---
 
