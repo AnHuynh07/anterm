@@ -39,7 +39,7 @@ export function ConnectionsPage() {
   });
   const { data: serverInfo } = useQuery({
     queryKey: ['server-info'],
-    queryFn: () => api<{ status: string; adhoc: boolean }>('/health'),
+    queryFn: () => api<{ status: string; adhoc: boolean; telnet?: boolean }>('/health'),
   });
   const { data: credData } = useQuery({
     queryKey: ['credentials'],
@@ -237,10 +237,16 @@ export function ConnectionsPage() {
                       </td>
                     )}
                     <td>
-                      <div className="conn-name">{c.name}</div>
+                      <div className="conn-name">
+                        {c.name}
+                        {c.protocol === 'telnet' && (
+                          <Badge tone="warn">telnet</Badge>
+                        )}
+                      </div>
                       <div className="mono small muted">
                         {jumpName && <span title="jump host">↳ via {jumpName} · </span>}
-                        {c.sshUsername}@{c.host}:{c.port}
+                        {c.protocol === 'telnet' ? '' : `${c.sshUsername}@`}
+                        {c.host}:{c.port}
                       </div>
                       {c.tags.length > 0 && (
                         <div className="tag-row">
@@ -253,7 +259,9 @@ export function ConnectionsPage() {
                       )}
                     </td>
                     <td>
-                      {linkedCred ? (
+                      {c.protocol === 'telnet' ? (
+                        <Badge tone="warn">no auth</Badge>
+                      ) : linkedCred ? (
                         <Badge tone="info">{linkedCred.name}</Badge>
                       ) : (
                         <Badge tone={authTone[c.authType]}>{c.authType}</Badge>
@@ -344,6 +352,7 @@ export function ConnectionsPage() {
           groups={allGroups}
           credentials={credData?.credentials ?? []}
           connections={conns}
+          allowTelnet={serverInfo?.telnet ?? false}
           busy={save.isPending}
           error={save.error ? (save.error as Error).message : undefined}
           onCancel={() => setEditing(null)}
@@ -359,6 +368,7 @@ function toBody(value: ConnectionFormValue) {
     name: value.name.trim(),
     host: value.host.trim(),
     port: value.port,
+    protocol: value.protocol,
     sshUsername: value.sshUsername.trim(),
     credentialId: value.credentialId || null,
     jumpConnectionId: value.jumpConnectionId || null,

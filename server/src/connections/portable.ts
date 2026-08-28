@@ -10,6 +10,7 @@ export interface PortableConnection {
   name: string;
   host: string;
   port: number;
+  protocol: 'ssh' | 'telnet';
   sshUsername: string;
   credential: string | null;
   authType: 'password' | 'key' | 'agent';
@@ -26,6 +27,7 @@ const FIELDS: (keyof PortableConnection)[] = [
   'name',
   'host',
   'port',
+  'protocol',
   'sshUsername',
   'credential',
   'authType',
@@ -43,6 +45,7 @@ export function toPortable(c: Connection, credName: string | null): PortableConn
     name: c.name,
     host: c.host,
     port: c.port,
+    protocol: c.protocol === 'telnet' ? 'telnet' : 'ssh',
     sshUsername: c.sshUsername,
     credential: credName,
     authType: c.authType,
@@ -113,6 +116,7 @@ export function parseImport(format: 'json' | 'csv', data: string): PortableConne
     name: str(r.name),
     host: str(r.host),
     port: Number(r.port) || 22,
+    protocol: String(r.protocol).toLowerCase() === 'telnet' ? 'telnet' : 'ssh',
     sshUsername: str(r.sshUsername ?? r.ssh_username ?? r.user),
     credential: opt(r.credential),
     authType: (['password', 'key', 'agent'] as const).includes(r.authType as never)
@@ -150,6 +154,7 @@ export function toConnectionInput(
     name: p.name,
     host: p.host,
     port: p.port,
+    protocol: p.protocol,
     sshUsername: p.sshUsername,
     credentialId,
     authType: p.authType,

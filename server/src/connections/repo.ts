@@ -8,10 +8,13 @@ export type AuthType = 'password' | 'key' | 'agent';
 export type ConnectionColor = 'red' | 'amber' | 'green' | 'blue' | 'violet';
 const COLORS: ConnectionColor[] = ['red', 'amber', 'green', 'blue', 'violet'];
 
+export type Protocol = 'ssh' | 'telnet';
+
 export interface ConnectionInput {
   name: string;
   host: string;
   port: number;
+  protocol?: Protocol | null;
   sshUsername: string;
   credentialId?: string | null;
   jumpConnectionId?: string | null;
@@ -62,6 +65,7 @@ export interface ConnectionDto {
   name: string;
   host: string;
   port: number;
+  protocol: Protocol;
   sshUsername: string;
   credentialId: string | null;
   jumpConnectionId: string | null;
@@ -97,6 +101,7 @@ export function toDto(c: Connection): ConnectionDto {
     name: c.name,
     host: c.host,
     port: c.port,
+    protocol: c.protocol,
     sshUsername: c.sshUsername,
     credentialId: c.credentialId ?? null,
     jumpConnectionId: c.jumpConnectionId ?? null,
@@ -187,6 +192,7 @@ export class ConnectionRepo {
       name: input.name,
       host: input.host,
       port: input.port,
+      protocol: input.protocol === 'telnet' ? 'telnet' : 'ssh',
       sshUsername: input.sshUsername,
       credentialId: input.credentialId || null,
       jumpConnectionId: input.jumpConnectionId || null,
@@ -223,6 +229,7 @@ export class ConnectionRepo {
       name: input.name,
       host: input.host,
       port: input.port,
+      protocol: input.protocol === 'telnet' ? 'telnet' : 'ssh',
       sshUsername: input.sshUsername,
       credentialId: input.credentialId || null,
       jumpConnectionId: input.jumpConnectionId || null,

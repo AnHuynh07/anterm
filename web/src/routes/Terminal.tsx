@@ -177,7 +177,10 @@ export function TerminalPage() {
       {broadcast && tabs.length > 1 && (
         <div className="conn-banner broadcast">⚡ Broadcast — you are typing to all {tabs.length} sessions</div>
       )}
-      {activeTab?.color && !broadcast && (
+      {activeConn?.protocol === 'telnet' && !broadcast && (
+        <div className="conn-banner telnet">🔓 Telnet — this session is unencrypted; anything you type is sent in clear text</div>
+      )}
+      {activeTab?.color && !broadcast && activeConn?.protocol !== 'telnet' && (
         <div className="conn-banner" style={{ background: COLOR_HEX[activeTab.color] }}>
           {activeTab.title}
         </div>

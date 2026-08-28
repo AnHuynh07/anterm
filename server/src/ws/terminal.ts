@@ -12,6 +12,7 @@ import { CredentialRepo, resolveTarget } from '../connections/credentials.js';
 import { ShareRepo } from '../connections/shares.js';
 import { connAccess } from '../access.js';
 import { SshSession } from '../ssh/client.js';
+import { TelnetSession } from '../telnet/session.js';
 import { dialThroughJumps } from '../ssh/jump.js';
 import { runCommand } from '../ssh/runner.js';
 import { LocalSession } from '../ssh/local.js';
@@ -76,6 +77,7 @@ interface Target {
   antiIdleSeconds?: number;
   auditTarget: string;
   local?: boolean;
+  telnet?: boolean;
   jumps?: JumpHopSpec[];
   configCommand?: string;
 }
@@ -304,21 +306,29 @@ class LiveSession {
       );
 
     const start = (sock?: Duplex): void => {
-      const ssh = new SshSession({
-        host: this.target.host,
-        port: this.target.port,
-        username: this.target.username,
-        password: this.target.password,
-        privateKey: this.target.privateKey,
-        passphrase: this.target.passphrase,
-        command: this.target.command,
-        cols: this.cols,
-        rows: this.rows,
-        sock,
-        verifyHostKey: verifier(),
-      });
-      this.wire(ssh);
-      ssh.connect();
+      const backend: TerminalBackend = this.target.telnet
+        ? new TelnetSession({
+            host: this.target.host,
+            port: this.target.port,
+            cols: this.cols,
+            rows: this.rows,
+            socket: sock,
+          })
+        : new SshSession({
+            host: this.target.host,
+            port: this.target.port,
+            username: this.target.username,
+            password: this.target.password,
+            privateKey: this.target.privateKey,
+            passphrase: this.target.passphrase,
+            command: this.target.command,
+            cols: this.cols,
+            rows: this.rows,
+            sock,
+            verifyHostKey: verifier(),
+          });
+      this.wire(backend);
+      backend.connect();
     };
 
     if (this.target.jumps?.length) {
@@ -581,7 +591,13 @@ class LiveSession {
     for (const c of this.clients) c.detachFromLive();
     this.clients.clear();
 
-    if (this.sawConfigSave && this.target.connectionId && !this.target.local && !this.target.jumps?.length) {
+    if (
+      this.sawConfigSave &&
+      this.target.connectionId &&
+      !this.target.local &&
+      !this.target.telnet &&
+      !this.target.jumps?.length
+    ) {
       void this.captureConfigSnapshot('auto-after-save', closedAuditId).catch((err) =>
         this.ctx.log.info({ err: (err as Error).message }, 'auto config snapshot failed'),
       );
@@ -595,7 +611,7 @@ class LiveSession {
     triggeredBy?: string,
   ): Promise<{ changed: boolean; lines: number } | null> {
     const connId = this.target.connectionId;
-    if (!connId) return null;
+    if (!connId || this.target.telnet) return null; // snapshots go over a fresh SSH exec
     const cmd = this.target.configCommand || 'show running-config';
     const known = await this.ctx.db.query.hostKeys.findFirst({
       where: eq(hostKeys.hostport, `${this.target.host.toLowerCase()}:${this.target.port}`),
@@ -782,11 +798,17 @@ class ClientConn {
         if (!connAccess(this.user, conn.userId, share).canOpen) {
           return this.fail('you do not have access to open this connection');
         }
+        const isTelnet = conn.protocol === 'telnet';
+        if (isTelnet && !config.allowTelnet) {
+          return this.fail('Telnet connections are disabled on this server (enable with --allow-telnet)');
+        }
         // credentials always resolve on the owner's behalf — a shared user never sees them
         const cred = conn.credentialId ? await this.deps.creds.get(conn.userId, conn.credentialId) : undefined;
         const resolved = resolveTarget(conn, cred ?? null, config.appSecret);
         const username = conn.sshUsername || resolved.credSshUsername || '';
-        if (!username) return this.fail('no SSH username — set one on the connection or its credential');
+        if (!isTelnet && !username) {
+          return this.fail('no SSH username — set one on the connection or its credential');
+        }
         const hasAuto = Boolean(resolved.autoLogin);
 
         let jumps: JumpHopSpec[] | undefined;
@@ -814,16 +836,19 @@ class ClientConn {
           host: conn.host,
           port: conn.port,
           username,
-          command: hasAuto ? undefined : (conn.initCommand ?? config.ssh.command),
+          telnet: isTelnet || undefined,
+          command: isTelnet || hasAuto ? undefined : (conn.initCommand ?? config.ssh.command),
           connectionId: conn.id,
           autoLogin: resolved.autoLogin ?? undefined,
           antiIdleSeconds: conn.antiIdleSeconds || undefined,
-          password: resolved.password,
-          privateKey: resolved.privateKey,
-          passphrase: resolved.passphrase,
+          password: isTelnet ? undefined : resolved.password,
+          privateKey: isTelnet ? undefined : resolved.privateKey,
+          passphrase: isTelnet ? undefined : resolved.passphrase,
           jumps,
           configCommand: conn.configCommand ?? undefined,
-          auditTarget: `${username}@${conn.host}:${conn.port}`,
+          auditTarget: isTelnet
+            ? `telnet://${conn.host}:${conn.port}`
+            : `${username}@${conn.host}:${conn.port}`,
         };
       } else if (msg.adhoc) {
         if (!config.adhocEnabled) return this.fail('ad-hoc SSH is disabled on this server');

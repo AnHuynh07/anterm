@@ -38,6 +38,10 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 - **Login automation** for network gear — after SSH connects, AnTerm answers the device's
   in-terminal `Username:` / `Password:` prompts, enters `enable` mode, runs setup commands
   (`terminal length 0` …), then permanently disengages so interactive apps are untouched
+- **Telnet** (opt-in, `--allow-telnet`) — for console servers and legacy gear: a full Telnet
+  client (IAC option negotiation, NAWS, terminal-type) presented through the same pipeline,
+  so recording, durable sessions, split view and login automation all still apply. Plaintext
+  and unauthenticated — a loud banner says so on every session
 - **Jump host / ProxyJump** — reach a device by tunnelling through another saved connection
   (chain up to 4 bastions); the bastion's own credentials and host-key trust are reused
 - **Bulk actions** — select many devices and run one command across all of them in parallel,
@@ -143,6 +147,7 @@ for the full list. Common options:
 | `--session-ttl-hours` | `ANTERM_SESSION_TTL_HOURS` | `12` | Login session lifetime |
 | `--allow-iframe` | `ANTERM_ALLOW_IFRAME` | `false` | Allow embedding in an iframe |
 | `--allow-secret-export` | `ANTERM_ALLOW_SECRET_EXPORT` | `true` | Let admins export the vault with decrypted secrets + a DB backup |
+| `--allow-telnet` | `ANTERM_ALLOW_TELNET` | `false` | Allow connections that use plaintext Telnet |
 | `--record` / `--no-record` | `ANTERM_RECORD` | `true` | Record session I/O + command log |
 | `--record-dir` | `ANTERM_RECORD_DIR` | `<db dir>/recordings` | Where `.cast` files are stored |
 | `--record-retention-days` | `ANTERM_RECORD_RETENTION_DAYS` | `30` | Delete recordings + old sessions after N days (0 = keep) |

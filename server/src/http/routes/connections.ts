@@ -19,6 +19,7 @@ const upsertBody = z.object({
   name: z.string().min(1).max(80),
   host: z.string().min(1).max(255),
   port: z.number().int().positive().max(65535).default(22),
+  protocol: z.enum(['ssh', 'telnet']).nullish(),
   sshUsername: z.string().max(128).default(''),
   credentialId: z.string().uuid().nullish(),
   jumpConnectionId: z.string().uuid().nullish(),
@@ -402,6 +403,10 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
           results.push({ ...base, ok: false, output: '', error: 'jump-host connections are not supported in bulk run yet', durationMs: 0 });
           return;
         }
+        if (conn.protocol === 'telnet') {
+          results.push({ ...base, ok: false, output: '', error: 'bulk run is SSH-only (Telnet has no exec channel)', durationMs: 0 });
+          return;
+        }
         const known = await ctx.db.query.hostKeys.findFirst({
           where: eq(hostKeys.hostport, `${conn.host.toLowerCase()}:${conn.port}`),
         });
@@ -468,6 +473,7 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     if (!loaded.access.canOpen) return reply.code(403).send({ error: 'you do not have access to this connection' });
     const conn = loaded.conn;
     if (conn.jumpConnectionId) return reply.code(400).send({ error: 'config snapshots via a jump host are not supported yet' });
+    if (conn.protocol === 'telnet') return reply.code(400).send({ error: 'config snapshots are SSH-only' });
 
     const known = await ctx.db.query.hostKeys.findFirst({
       where: eq(hostKeys.hostport, `${conn.host.toLowerCase()}:${conn.port}`),

@@ -6,6 +6,7 @@ const sample: PortableConnection = {
   name: 'core-sw1',
   host: '10.0.0.1',
   port: 22,
+  protocol: 'ssh',
   sshUsername: 'admin',
   credential: 'core-admin',
   authType: 'password',
@@ -49,7 +50,12 @@ describe('parseImport', () => {
   it('reads CSV with a header row', () => {
     const csv = 'name,host,port,sshUsername,credential\nsw1,10.0.0.9,22,admin,core-admin\n';
     const out = parseImport('csv', csv);
-    expect(out[0]).toMatchObject({ name: 'sw1', host: '10.0.0.9', credential: 'core-admin' });
+    expect(out[0]).toMatchObject({ name: 'sw1', host: '10.0.0.9', credential: 'core-admin', protocol: 'ssh' });
+  });
+
+  it('reads a telnet protocol column', () => {
+    const out = parseImport('json', JSON.stringify([{ name: 't', host: 'h', protocol: 'Telnet' }]));
+    expect(out[0].protocol).toBe('telnet');
   });
 
   it('tolerates alternate column names and coerces invalid values', () => {

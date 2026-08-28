@@ -1,11 +1,12 @@
 import { FormEvent, useState } from 'react';
-import type { AuthType, Connection, ConnectionColor, Credential } from '../types';
+import type { AuthType, Connection, ConnectionColor, Credential, Protocol } from '../types';
 import { COLOR_LABEL } from './colors';
 
 export interface ConnectionFormValue {
   name: string;
   host: string;
   port: number;
+  protocol: Protocol;
   sshUsername: string;
   credentialId: string;
   jumpConnectionId: string;
@@ -33,6 +34,7 @@ interface Props {
   groups?: string[];
   credentials?: Credential[];
   connections?: Connection[];
+  allowTelnet?: boolean;
   busy?: boolean;
   error?: string;
   onCancel: () => void;
@@ -44,6 +46,7 @@ export function ConnectionForm({
   groups = [],
   credentials = [],
   connections = [],
+  allowTelnet = false,
   busy,
   error,
   onCancel,
@@ -53,6 +56,7 @@ export function ConnectionForm({
     name: initial?.name ?? '',
     host: initial?.host ?? '',
     port: initial?.port ?? 22,
+    protocol: initial?.protocol ?? 'ssh',
     sshUsername: initial?.sshUsername ?? '',
     credentialId: initial?.credentialId ?? '',
     jumpConnectionId: initial?.jumpConnectionId ?? '',
@@ -81,8 +85,18 @@ export function ConnectionForm({
   const set = <K extends keyof ConnectionFormValue>(k: K, val: ConnectionFormValue[K]) =>
     setV((prev) => ({ ...prev, [k]: val }));
 
+  const telnet = v.protocol === 'telnet';
+  const setProtocol = (p: Protocol) =>
+    setV((prev) => ({
+      ...prev,
+      protocol: p,
+      // nudge the port to the well-known default if it's still on the other one
+      port: p === 'telnet' && prev.port === 22 ? 23 : p === 'ssh' && prev.port === 23 ? 22 : prev.port,
+    }));
+
   const cred = credentials.find((c) => c.id === v.credentialId);
-  const useVault = Boolean(cred);
+  const useVault = Boolean(cred) && !telnet;
+  const showProtocol = allowTelnet || initial?.protocol === 'telnet';
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -97,15 +111,27 @@ export function ConnectionForm({
           Name
           <input value={v.name} onChange={(e) => set('name', e.target.value)} required />
         </label>
+        {showProtocol && (
+          <label>
+            Protocol
+            <select value={v.protocol} onChange={(e) => setProtocol(e.target.value as Protocol)}>
+              <option value="ssh">SSH</option>
+              <option value="telnet">Telnet (plaintext)</option>
+            </select>
+          </label>
+        )}
         <label>
-          SSH user{' '}
-          {useVault && cred?.sshUsername && (
-            <span className="muted small">(optional — credential uses “{cred.sshUsername}”)</span>
+          {telnet ? 'Login user' : 'SSH user'}{' '}
+          {telnet ? (
+            <span className="muted small">(optional — usually handled by login automation)</span>
+          ) : (
+            useVault &&
+            cred?.sshUsername && <span className="muted small">(optional — credential uses “{cred.sshUsername}”)</span>
           )}
           <input
             value={v.sshUsername}
             onChange={(e) => set('sshUsername', e.target.value)}
-            required={!useVault || !cred?.sshUsername}
+            required={!telnet && (!useVault || !cred?.sshUsername)}
             placeholder={useVault && cred?.sshUsername ? cred.sshUsername : ''}
           />
         </label>
@@ -117,7 +143,7 @@ export function ConnectionForm({
           Port
           <input type="number" value={v.port} min={1} max={65535} onChange={(e) => set('port', Number(e.target.value))} />
         </label>
-        {!useVault && (
+        {!useVault && !telnet && (
           <label>
             Auth method
             <select value={v.authType} onChange={(e) => set('authType', e.target.value as AuthType)}>
@@ -160,7 +186,7 @@ export function ConnectionForm({
             ))}
           </select>
         </label>
-        {credentials.length > 0 && (
+        {credentials.length > 0 && !telnet && (
           <label>
             Credentials
             <select value={v.credentialId} onChange={(e) => set('credentialId', e.target.value)}>
@@ -175,6 +201,14 @@ export function ConnectionForm({
         )}
       </div>
 
+      {telnet && (
+        <div className="alert error" style={{ marginTop: 14 }}>
+          <strong>Telnet is unencrypted.</strong> Everything typed on this session — including any password entered at
+          the device’s login prompt — crosses the network in clear text, and the device’s identity cannot be verified.
+          Use it only on a trusted management network.
+        </div>
+      )}
+
       {useVault && (
         <div className="alert ok" style={{ marginTop: 14 }}>
           Auth{cred?.loginUsername || cred?.setupCommands ? ' & login automation' : ''} provided by credential
@@ -182,14 +216,14 @@ export function ConnectionForm({
         </div>
       )}
 
-      {!useVault && v.authType === 'password' && (
+      {!useVault && !telnet && v.authType === 'password' && (
         <label>
           SSH password {editing && <span className="muted small">(leave blank to keep current)</span>}
           <input type="password" value={v.secret} onChange={(e) => set('secret', e.target.value)} autoComplete="off" />
         </label>
       )}
 
-      {!useVault && v.authType === 'key' && (
+      {!useVault && !telnet && v.authType === 'key' && (
         <>
           <label>
             Private key (PEM) {editing && <span className="muted small">(leave blank to keep current)</span>}
@@ -222,8 +256,8 @@ export function ConnectionForm({
         {showAuto && (
           <div className="section-body">
             <p className="muted small">
-              After SSH connects, AnTerm answers the device’s in-terminal <code>Username:</code> / <code>Password:</code>{' '}
-              prompts, then disengages. Leave blank if SSH logs you straight into a shell.
+              Once connected, AnTerm answers the device’s in-terminal <code>Username:</code> / <code>Password:</code>{' '}
+              prompts, then disengages. {telnet ? 'This is the usual way to log a Telnet device in.' : 'Leave blank if SSH logs you straight into a shell.'}
             </p>
             <div className="grid2">
               <label>
@@ -309,18 +343,22 @@ export function ConnectionForm({
                 </select>
               </label>
             )}
-            <label>
-              Run a single command (exec mode) <span className="muted small">— instead of an interactive shell</span>
-              <input value={v.initCommand} onChange={(e) => set('initCommand', e.target.value)} placeholder="e.g. show tech-support" />
-            </label>
-            <label>
-              Config snapshot command <span className="muted small">— what “Config history” dumps &amp; diffs</span>
-              <input
-                value={v.configCommand}
-                onChange={(e) => set('configCommand', e.target.value)}
-                placeholder="show running-config"
-              />
-            </label>
+            {!telnet && (
+              <label>
+                Run a single command (exec mode) <span className="muted small">— instead of an interactive shell</span>
+                <input value={v.initCommand} onChange={(e) => set('initCommand', e.target.value)} placeholder="e.g. show tech-support" />
+              </label>
+            )}
+            {!telnet && (
+              <label>
+                Config snapshot command <span className="muted small">— what “Config history” dumps &amp; diffs</span>
+                <input
+                  value={v.configCommand}
+                  onChange={(e) => set('configCommand', e.target.value)}
+                  placeholder="show running-config"
+                />
+              </label>
+            )}
             <label>
               Anti-idle keepalive <span className="muted small">— send a null byte every N seconds of silence (0 = off)</span>
               <input

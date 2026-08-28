@@ -79,6 +79,10 @@ export const connections = sqliteTable(
     name: text('name').notNull(),
     host: text('host').notNull(),
     port: integer('port').notNull().default(22),
+    // transport: 'ssh' (default) or 'telnet' (plaintext, opt-in via --allow-telnet)
+    protocol: text('protocol', { enum: ['ssh', 'telnet'] })
+      .notNull()
+      .default('ssh'),
     sshUsername: text('ssh_username').notNull().default(''),
     credentialId: text('credential_id').references(() => credentials.id, { onDelete: 'set null' }),
     // reach this device by tunnelling through another saved connection (bastion)

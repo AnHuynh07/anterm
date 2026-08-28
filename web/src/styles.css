@@ -821,6 +821,9 @@ code {
 }
 .conn-name {
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 .tag-row {
   display: flex;
@@ -852,6 +855,11 @@ code {
 }
 .conn-banner.broadcast {
   background: var(--down-solid);
+}
+.conn-banner.telnet {
+  background: #b45309;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 /* ---------- badges (UP / DOWN / vlan …) ---------- */

@@ -36,6 +36,7 @@ export interface VaultConnection {
   name: string;
   host: string;
   port: number;
+  protocol: 'ssh' | 'telnet';
   sshUsername: string;
   credential: string | null;
   /** bastion connection, referenced by (owner, name) */
@@ -96,6 +97,7 @@ export async function buildVaultBundle(db: Db, appSecret: string): Promise<Vault
       name: c.name,
       host: c.host,
       port: c.port,
+      protocol: c.protocol === 'telnet' ? ('telnet' as const) : ('ssh' as const),
       sshUsername: c.sshUsername,
       credential: c.credentialId ? (credNameById.get(c.credentialId) ?? null) : null,
       jump: c.jumpConnectionId ? (connNameById.get(c.jumpConnectionId) ?? null) : null,
@@ -199,6 +201,7 @@ export async function applyVaultBundle(
         name: c.name,
         host: c.host,
         port: c.port,
+        protocol: c.protocol === 'telnet' ? ('telnet' as const) : ('ssh' as const),
         sshUsername: c.sshUsername,
         credentialId: credId,
         authType: c.authType,

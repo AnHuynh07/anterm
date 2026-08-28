@@ -60,11 +60,14 @@ export interface Credential {
   ownerName?: string;
 }
 
+export type Protocol = 'ssh' | 'telnet';
+
 export interface Connection {
   id: string;
   name: string;
   host: string;
   port: number;
+  protocol: Protocol;
   sshUsername: string;
   credentialId: string | null;
   jumpConnectionId: string | null;

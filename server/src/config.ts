@@ -66,6 +66,9 @@ const schema = z.object({
   // allow admins to export/import the vault with decrypted secrets + download a DB backup
   allowSecretExport: bool.default(true),
 
+  // allow connections that use plaintext Telnet (no auth, no transport security)
+  allowTelnet: bool.default(false),
+
   // reachability alerting: fire only after N consecutive same-status probes (flap guard)
   alertAfterFailures: z.coerce.number().int().min(1).max(10).default(2),
 
@@ -128,6 +131,10 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
       type: 'boolean',
       describe: 'Allow admins to export the vault with decrypted secrets + a DB backup (default true)',
     })
+    .option('allow-telnet', {
+      type: 'boolean',
+      describe: 'Allow connections that use plaintext Telnet (default false)',
+    })
     .option('alert-after-failures', {
       type: 'number',
       describe: 'Fire a reachability alert only after N consecutive same-status probes (default 2)',
@@ -170,6 +177,7 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     recordDir: parsed.recordDir ?? fileCfg.recordDir,
     recordRetentionDays: parsed.recordRetentionDays ?? fileCfg.recordRetentionDays,
     allowSecretExport: parsed.allowSecretExport ?? fileCfg.allowSecretExport,
+    allowTelnet: parsed.allowTelnet ?? fileCfg.allowTelnet,
     alertAfterFailures: parsed.alertAfterFailures ?? fileCfg.alertAfterFailures,
     ssh: {
       host: parsed.sshHost ?? fileSsh.host,
