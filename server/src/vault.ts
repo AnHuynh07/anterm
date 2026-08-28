@@ -18,6 +18,40 @@ import { normTags } from './connections/repo.js';
 
 export type VaultFormat = 'encrypted' | 'json' | 'csv';
 
+function webFromStored(raw: string | null, appSecret: string): VaultWeb | null {
+  if (!raw) return null;
+  try {
+    const s = JSON.parse(raw) as Record<string, unknown>;
+    if (!s.url) return null;
+    return {
+      url: String(s.url),
+      authMode: s.authMode === 'basic' || s.authMode === 'none' ? s.authMode : 'form',
+      username: (s.username as string | null) ?? null,
+      password: maybeDecrypt((s.passwordEnc as string) ?? null, appSecret) ?? null,
+      insecureTls: Boolean(s.insecureTls),
+      loginPath: (s.loginPath as string | null) ?? null,
+      userField: (s.userField as string | null) ?? null,
+      passField: (s.passField as string | null) ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function webToStored(w: VaultWeb | null, appSecret: string): string | null {
+  if (!w?.url) return null;
+  return JSON.stringify({
+    url: w.url,
+    authMode: w.authMode,
+    username: w.username ?? null,
+    passwordEnc: w.password ? encryptSecret(w.password, appSecret) : null,
+    insecureTls: Boolean(w.insecureTls),
+    loginPath: w.loginPath ?? null,
+    userField: w.userField ?? null,
+    passField: w.passField ?? null,
+  });
+}
+
 export interface VaultCredential {
   owner: string;
   name: string;
@@ -31,12 +65,24 @@ export interface VaultCredential {
   setupCommands: string | null;
 }
 
+export interface VaultWeb {
+  url: string;
+  authMode: 'form' | 'basic' | 'none';
+  username: string | null;
+  password: string | null;
+  insecureTls: boolean;
+  loginPath: string | null;
+  userField: string | null;
+  passField: string | null;
+}
+
 export interface VaultConnection {
   owner: string;
   name: string;
   host: string;
   port: number;
-  protocol: 'ssh' | 'telnet';
+  protocol: 'ssh' | 'telnet' | 'http';
+  web: VaultWeb | null;
   sshUsername: string;
   credential: string | null;
   /** bastion connection, referenced by (owner, name) */
@@ -97,7 +143,8 @@ export async function buildVaultBundle(db: Db, appSecret: string): Promise<Vault
       name: c.name,
       host: c.host,
       port: c.port,
-      protocol: c.protocol === 'telnet' ? ('telnet' as const) : ('ssh' as const),
+      protocol: c.protocol === 'telnet' ? ('telnet' as const) : c.protocol === 'http' ? ('http' as const) : ('ssh' as const),
+      web: webFromStored(c.settings ?? null, appSecret),
       sshUsername: c.sshUsername,
       credential: c.credentialId ? (credNameById.get(c.credentialId) ?? null) : null,
       jump: c.jumpConnectionId ? (connNameById.get(c.jumpConnectionId) ?? null) : null,
@@ -201,7 +248,9 @@ export async function applyVaultBundle(
         name: c.name,
         host: c.host,
         port: c.port,
-        protocol: c.protocol === 'telnet' ? ('telnet' as const) : ('ssh' as const),
+        protocol:
+          c.protocol === 'telnet' ? ('telnet' as const) : c.protocol === 'http' ? ('http' as const) : ('ssh' as const),
+        settings: webToStored(c.web ?? null, appSecret),
         sshUsername: c.sshUsername,
         credentialId: credId,
         authType: c.authType,

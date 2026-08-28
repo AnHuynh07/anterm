@@ -7,6 +7,7 @@ import type { ActivityLog } from './activity.js';
 import type { AppSettingsStore } from './settings.js';
 import type { Alerter } from './alerts.js';
 import type { LiveRegistry } from './ws/terminal.js';
+import type { WebProxyRegistry } from './web/proxy.js';
 
 export interface AppContext {
   config: AppConfig;
@@ -20,4 +21,6 @@ export interface AppContext {
   alerter: Alerter;
   /** process-wide table of running terminal sessions (for re-attach) */
   liveSessions: LiveRegistry;
+  /** per-user reverse-proxy sessions to web-managed devices */
+  webProxy: WebProxyRegistry;
 }

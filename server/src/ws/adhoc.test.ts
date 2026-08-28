@@ -12,6 +12,7 @@ import { ActivityLog } from '../activity.js';
 import { AppSettingsStore } from '../settings.js';
 import { Alerter } from '../alerts.js';
 import { LiveRegistry } from './terminal.js';
+import { WebProxyRegistry } from '../web/proxy.js';
 import { buildApp } from '../http/app.js';
 import { attachTerminalWs } from './terminal.js';
 import { startSshFixture, type SshFixture } from '../../test/sshFixture.js';
@@ -54,6 +55,7 @@ beforeAll(async () => {
     settings: new AppSettingsStore(dbHandle.db),
     alerter: new Alerter(new AppSettingsStore(dbHandle.db), log),
     liveSessions: new LiveRegistry(),
+    webProxy: new WebProxyRegistry(),
   };
   await createUser(dbHandle.db, { username: 'a', password: 'a-password', role: 'operator' });
 

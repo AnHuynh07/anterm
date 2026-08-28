@@ -42,6 +42,11 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
   client (IAC option negotiation, NAWS, terminal-type) presented through the same pipeline,
   so recording, durable sessions, split view and login automation all still apply. Plaintext
   and unauthenticated — a loud banner says so on every session
+- **Web-managed devices** (`--allow-web-proxy`, on by default) — switches with only a web GUI
+  (e.g. Allied Telesis WebSmart): AnTerm reverse-proxies the device UI, signs you in with the
+  stored credentials (form or HTTP Basic), and frames it inside AnTerm — one click, already
+  logged in. Absolute paths / redirects / cookies rewritten; self-signed HTTPS accepted;
+  credentials encrypted at rest and never sent to the browser
 - **Jump host / ProxyJump** — reach a device by tunnelling through another saved connection
   (chain up to 4 bastions); the bastion's own credentials and host-key trust are reused
 - **Bulk actions** — select many devices and run one command across all of them in parallel,
@@ -154,6 +159,7 @@ for the full list. Common options:
 | `--allow-iframe` | `ANTERM_ALLOW_IFRAME` | `false` | Allow embedding in an iframe |
 | `--allow-secret-export` | `ANTERM_ALLOW_SECRET_EXPORT` | `true` | Let admins export the vault with decrypted secrets + a DB backup |
 | `--allow-telnet` | `ANTERM_ALLOW_TELNET` | `false` | Allow connections that use plaintext Telnet |
+| `--allow-web-proxy` | `ANTERM_ALLOW_WEB_PROXY` | `true` | Reverse-proxy + auto-login web-managed devices in an iframe |
 | `--record` / `--no-record` | `ANTERM_RECORD` | `true` | Record session I/O + command log |
 | `--record-dir` | `ANTERM_RECORD_DIR` | `<db dir>/recordings` | Where `.cast` files are stored |
 | `--record-retention-days` | `ANTERM_RECORD_RETENTION_DAYS` | `30` | Delete recordings + old sessions after N days (0 = keep) |

@@ -7,6 +7,7 @@ export function registerHealthRoutes(app: AnyFastify, ctx: AppContext): void {
     adhoc: ctx.config.adhocEnabled,
     secretExport: ctx.config.allowSecretExport,
     telnet: ctx.config.allowTelnet,
+    webProxy: ctx.config.allowWebProxy,
   }));
 
   // Plain liveness probe outside the /api namespace-friendly shape

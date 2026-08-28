@@ -1,9 +1,11 @@
 import { createConnection } from 'node:net';
+import { get as httpGet } from 'node:http';
+import { get as httpsGet } from 'node:https';
 import { randomUUID } from 'node:crypto';
 import type { Logger } from 'pino';
 import { desc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { connections, reachabilityEvents, type ReachabilityEvent } from '../db/schema.js';
+import { connections, reachabilityEvents, type Connection, type ReachabilityEvent } from '../db/schema.js';
 
 export type ReachStatus = 'up' | 'down' | 'unknown';
 
@@ -47,11 +49,61 @@ export function probe(host: string, port: number): Promise<ReachResult> {
   });
 }
 
+/** HTTP(S) reachability of a web device's management URL (any response < 500 = up). */
+export function httpProbe(url: string): Promise<ReachResult> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    let done = false;
+    const finish = (r: Omit<ReachResult, 'checkedAt'>) => {
+      if (done) return;
+      done = true;
+      resolve({ ...r, checkedAt: Math.floor(Date.now() / 1000) });
+    };
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      finish({ status: 'unknown', latencyMs: null, detail: 'bad url' });
+      return;
+    }
+    const onRes = (res: import('node:http').IncomingMessage) => {
+      res.resume();
+      const ok = (res.statusCode ?? 500) < 500;
+      finish({ status: ok ? 'up' : 'down', latencyMs: Date.now() - start, detail: ok ? null : `HTTP ${res.statusCode}` });
+    };
+    const req =
+      u.protocol === 'https:'
+        ? httpsGet(u, { timeout: TIMEOUT_MS, rejectUnauthorized: false }, onRes)
+        : httpGet(u, { timeout: TIMEOUT_MS }, onRes);
+    req.on('timeout', () => {
+      req.destroy();
+      finish({ status: 'down', latencyMs: null, detail: 'timed out' });
+    });
+    req.on('error', (err) => finish({ status: 'down', latencyMs: null, detail: (err as Error).message }));
+  });
+}
+
 interface Target {
   id: string;
   name: string;
   host: string;
   port: number;
+  webUrl?: string;
+}
+
+function toTargets(rows: Connection[]): Target[] {
+  return rows.map((r) => {
+    const t: Target = { id: r.id, name: r.name, host: r.host, port: r.port };
+    if (r.protocol === 'http' && r.settings) {
+      try {
+        const u = (JSON.parse(r.settings) as { url?: string }).url;
+        if (u) t.webUrl = u;
+      } catch {
+        /* ignore */
+      }
+    }
+    return t;
+  });
 }
 
 /**
@@ -98,20 +150,20 @@ export class ReachabilityMonitor {
 
   async sweepAll(): Promise<void> {
     const rows = await this.db.select().from(connections);
-    await this.runBatch(rows.map((r) => ({ id: r.id, name: r.name, host: r.host, port: r.port })));
+    await this.runBatch(toTargets(rows));
   }
 
   /** Check just one user's connections and return the fresh results. */
   async checkUser(userId: string): Promise<Record<string, ReachResult>> {
     const rows = await this.db.select().from(connections).where(eq(connections.userId, userId));
-    await this.runBatch(rows.map((r) => ({ id: r.id, name: r.name, host: r.host, port: r.port })));
+    await this.runBatch(toTargets(rows));
     return this.snapshot(rows.map((r) => r.id));
   }
 
   async checkByIds(ids: string[]): Promise<Record<string, ReachResult>> {
     if (!ids.length) return {};
     const rows = await this.db.select().from(connections).where(inArray(connections.id, ids));
-    await this.runBatch(rows.map((r) => ({ id: r.id, name: r.name, host: r.host, port: r.port })));
+    await this.runBatch(toTargets(rows));
     return this.snapshot(ids);
   }
 
@@ -140,7 +192,7 @@ export class ReachabilityMonitor {
           res = { status: 'unknown', checkedAt: Math.floor(Date.now() / 1000), latencyMs: null, detail: 'host not in allowlist' };
         } else {
           try {
-            res = await probe(t.host, t.port);
+            res = t.webUrl ? await httpProbe(t.webUrl) : await probe(t.host, t.port);
           } catch (err) {
             this.log.debug({ err, host: t.host }, 'probe failed');
             continue;

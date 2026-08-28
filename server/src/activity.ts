@@ -28,6 +28,8 @@ export type AuditAction =
   | 'hostkey.changed_accepted'
   | 'session.recordings_pruned'
   | 'session.terminated'
+  | 'webdevice.open'
+  | 'webdevice.reveal'
   | 'vault.export'
   | 'vault.import'
   | 'vault.db_backup'

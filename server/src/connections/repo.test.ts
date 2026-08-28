@@ -124,6 +124,40 @@ describe('ConnectionRepo organisation fields', () => {
     expect(toDto(cleared!).runbook).toBeNull();
   });
 
+  it('web device: encrypts the password, DTO hides it, resolveWebTarget decrypts', async () => {
+    const { repo, userId } = await setup();
+    const c = await repo.create(userId, {
+      name: 'gs950',
+      host: '10.195.32.34',
+      port: 443,
+      protocol: 'http',
+      sshUsername: '',
+      authType: 'password',
+      settings: { url: 'http://10.195.32.34/', authMode: 'form', username: 'manager', password: 'friend' },
+    });
+    const dto = toDto(c);
+    expect(dto.protocol).toBe('http');
+    expect(dto.web).toMatchObject({ url: 'http://10.195.32.34/', authMode: 'form', username: 'manager', hasPassword: true });
+    expect(JSON.stringify(dto)).not.toMatch(/friend/); // password never leaves
+    expect(c.settings).not.toContain('friend'); // encrypted at rest
+
+    const resolved = repo.resolveWebTarget(c);
+    expect(resolved).toMatchObject({ url: 'http://10.195.32.34/', username: 'manager', password: 'friend', loginPath: '/iss/redirect.html' });
+
+    // edit without a password keeps the stored one
+    const edited = await repo.update(userId, c.id, {
+      name: 'gs950',
+      host: '10.195.32.34',
+      port: 443,
+      protocol: 'http',
+      sshUsername: '',
+      authType: 'password',
+      settings: { url: 'http://10.195.32.34/mgmt', authMode: 'form', username: 'manager' },
+    });
+    expect(repo.resolveWebTarget(edited!)?.password).toBe('friend');
+    expect(repo.resolveWebTarget(edited!)?.url).toBe('http://10.195.32.34/mgmt');
+  });
+
   it('resolveLoginAutomation decrypts round-trip', async () => {
     const { repo, userId } = await setup();
     const c = await repo.create(userId, {

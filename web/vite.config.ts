@@ -16,6 +16,8 @@ export default defineConfig({
     proxy: {
       '/api': { target: serverTarget, changeOrigin: true },
       '/ws': { target: serverTarget, ws: true, changeOrigin: true },
+      // reverse proxy to web-managed devices (iframe src)
+      '/webproxy': { target: serverTarget, changeOrigin: true },
     },
   },
   build: {

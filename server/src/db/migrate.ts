@@ -245,6 +245,12 @@ const migrations: { id: string; sql: string }[] = [
       ALTER TABLE connections ADD COLUMN protocol TEXT NOT NULL DEFAULT 'ssh';
     `,
   },
+  {
+    id: '0014_web_device',
+    sql: /* sql */ `
+      ALTER TABLE connections ADD COLUMN settings TEXT;
+    `,
+  },
 ];
 
 export function runMigrations(raw: Database.Database): void {

@@ -17,6 +17,9 @@ const sample: PortableConnection = {
   setupCommands: 'terminal length 0\nshow version',
   initCommand: null,
   runbook: '## Reboot\n- console in rack 3',
+  webUrl: null,
+  webAuthMode: null,
+  webUsername: null,
 };
 
 describe('portable CSV', () => {
@@ -56,6 +59,16 @@ describe('parseImport', () => {
   it('reads a telnet protocol column', () => {
     const out = parseImport('json', JSON.stringify([{ name: 't', host: 'h', protocol: 'Telnet' }]));
     expect(out[0].protocol).toBe('telnet');
+  });
+
+  it('carries a web device (url/authMode/username, never a password)', () => {
+    const csv = toCsv([
+      { ...sample, name: 'sw', protocol: 'http', webUrl: 'http://10.0.0.2/', webAuthMode: 'form', webUsername: 'manager' },
+    ]);
+    expect(csv).not.toContain('webPassword');
+    expect(csv.split('\n')[0]).not.toMatch(/pass/i); // no password column
+    const back = parseImport('csv', csv);
+    expect(back[0]).toMatchObject({ protocol: 'http', webUrl: 'http://10.0.0.2/', webAuthMode: 'form', webUsername: 'manager' });
   });
 
   it('tolerates alternate column names and coerces invalid values', () => {

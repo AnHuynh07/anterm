@@ -20,6 +20,7 @@ import { registerUserRoutes } from './routes/users.js';
 import { registerActivityRoutes } from './routes/activity.js';
 import { registerVaultRoutes } from './routes/vault.js';
 import { registerSettingsRoutes } from './routes/settings.js';
+import { registerWebProxy } from '../web/proxy.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -79,6 +80,25 @@ export async function buildApp(ctx: AppContext): Promise<AnyFastify> {
     }
   });
 
+  // Web-proxy escape hatch: a device page may request an absolute path our
+  // rewriting missed (e.g. `/iss/x.js`). If it came from a proxy iframe, send it
+  // back through the proxy for that connection.
+  app.addHook('onRequest', async (req, reply) => {
+    const path = req.url.split('?')[0] ?? '';
+    if (
+      path.startsWith('/api/') ||
+      path.startsWith('/ws/') ||
+      path.startsWith('/webproxy/') ||
+      path.startsWith('/assets/') ||
+      path === '/' ||
+      path === '/index.html'
+    )
+      return;
+    const ref = req.headers.referer;
+    const m = ref && /\/webproxy\/([^/]+)\//.exec(ref);
+    if (m) return reply.redirect(`/webproxy/${m[1]}${req.url}`, 307);
+  });
+
   // CSRF: double-submit — header must match the csrf cookie for state changes.
   app.addHook('onRequest', async (req, reply) => {
     if (!MUTATING.has(req.method)) return;
@@ -108,6 +128,7 @@ export async function buildApp(ctx: AppContext): Promise<AnyFastify> {
   const prefix = config.base === '/' ? undefined : config.base;
   await app.register(async (scoped) => {
     await scoped.register(api, { prefix: '/api' });
+    registerWebProxy(scoped, ctx);
     await registerSpa(scoped, config.isDev);
   }, prefix ? { prefix } : {});
 

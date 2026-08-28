@@ -8,13 +8,53 @@ export type AuthType = 'password' | 'key' | 'agent';
 export type ConnectionColor = 'red' | 'amber' | 'green' | 'blue' | 'violet';
 const COLORS: ConnectionColor[] = ['red', 'amber', 'green', 'blue', 'violet'];
 
-export type Protocol = 'ssh' | 'telnet';
+export type Protocol = 'ssh' | 'telnet' | 'http';
+
+export type WebAuthMode = 'form' | 'basic' | 'none';
+
+/** Web-managed device config as sent by the client (password omitted = keep). */
+export interface WebSettingsInput {
+  url: string;
+  authMode: WebAuthMode;
+  username?: string | null;
+  password?: string | null;
+  insecureTls?: boolean;
+  /** form auth: where to POST and what the fields are called */
+  loginPath?: string | null;
+  userField?: string | null;
+  passField?: string | null;
+}
+
+/** Web-device config as stored (password encrypted). */
+export interface WebSettingsStored {
+  url: string;
+  authMode: WebAuthMode;
+  username: string | null;
+  passwordEnc: string | null;
+  insecureTls: boolean;
+  loginPath: string | null;
+  userField: string | null;
+  passField: string | null;
+}
+
+/** Web-device config as returned to the client (no secret). */
+export interface WebSettingsDto {
+  url: string;
+  authMode: WebAuthMode;
+  username: string | null;
+  hasPassword: boolean;
+  insecureTls: boolean;
+  loginPath: string | null;
+  userField: string | null;
+  passField: string | null;
+}
 
 export interface ConnectionInput {
   name: string;
   host: string;
   port: number;
   protocol?: Protocol | null;
+  settings?: WebSettingsInput | null;
   sshUsername: string;
   credentialId?: string | null;
   jumpConnectionId?: string | null;
@@ -59,6 +99,57 @@ function clampIdle(v: number | null | undefined): number {
   return n <= 0 ? 0 : Math.min(Math.max(n, 15), 3600);
 }
 
+function parseWebStored(raw: string | null): WebSettingsStored | null {
+  if (!raw) return null;
+  try {
+    const s = JSON.parse(raw) as Partial<WebSettingsStored>;
+    if (!s.url) return null;
+    return {
+      url: s.url,
+      authMode: s.authMode === 'basic' || s.authMode === 'none' ? s.authMode : 'form',
+      username: s.username ?? null,
+      passwordEnc: s.passwordEnc ?? null,
+      insecureTls: Boolean(s.insecureTls),
+      loginPath: s.loginPath ?? null,
+      userField: s.userField ?? null,
+      passField: s.passField ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function webToDto(raw: string | null): WebSettingsDto | null {
+  const s = parseWebStored(raw);
+  if (!s) return null;
+  return {
+    url: s.url,
+    authMode: s.authMode,
+    username: s.username,
+    hasPassword: Boolean(s.passwordEnc),
+    insecureTls: s.insecureTls,
+    loginPath: s.loginPath,
+    userField: s.userField,
+    passField: s.passField,
+  };
+}
+
+function normProtocol(p: Protocol | null | undefined): Protocol {
+  return p === 'telnet' || p === 'http' ? p : 'ssh';
+}
+
+/** Decrypted web-device config for the reverse proxy. */
+export interface ResolvedWebTarget {
+  url: string;
+  authMode: WebAuthMode;
+  username: string | null;
+  password: string | null;
+  insecureTls: boolean;
+  loginPath: string;
+  userField: string;
+  passField: string;
+}
+
 /** Shape returned to the client — never includes decrypted secrets. */
 export interface ConnectionDto {
   id: string;
@@ -83,6 +174,8 @@ export interface ConnectionDto {
   tags: string[];
   color: ConnectionColor | null;
   antiIdleSeconds: number;
+  /** web-managed device config (protocol === 'http'), never the password */
+  web: WebSettingsDto | null;
   createdAt: number;
   updatedAt: number;
   ownerId: string;
@@ -119,6 +212,7 @@ export function toDto(c: Connection): ConnectionDto {
     tags: c.tags ? c.tags.split(',').filter(Boolean) : [],
     color: c.color ?? null,
     antiIdleSeconds: c.antiIdleSeconds,
+    web: webToDto(c.settings ?? null),
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     ownerId: c.userId,
@@ -184,6 +278,44 @@ export class ConnectionRepo {
     return v ? encryptSecret(v, this.appSecret) : null;
   }
 
+  /** Build the `settings` JSON column for a web device (password encrypted).
+   *  On edit, `existingRaw` supplies the stored password when the client omits it. */
+  private webColumn(input: ConnectionInput, existingRaw?: string | null): string | null {
+    if (normProtocol(input.protocol) !== 'http') return null;
+    const s = input.settings;
+    if (!s?.url) return null;
+    const prev = parseWebStored(existingRaw ?? null);
+    const passwordEnc =
+      s.password === undefined ? (prev?.passwordEnc ?? null) : this.enc(s.password || null);
+    const stored: WebSettingsStored = {
+      url: s.url.trim(),
+      authMode: s.authMode === 'basic' || s.authMode === 'none' ? s.authMode : 'form',
+      username: s.username?.trim() || null,
+      passwordEnc,
+      insecureTls: Boolean(s.insecureTls),
+      loginPath: s.loginPath?.trim() || null,
+      userField: s.userField?.trim() || null,
+      passField: s.passField?.trim() || null,
+    };
+    return JSON.stringify(stored);
+  }
+
+  /** Decrypt a connection's web-device config for the reverse proxy. */
+  resolveWebTarget(c: Connection): ResolvedWebTarget | null {
+    const s = parseWebStored(c.settings ?? null);
+    if (!s) return null;
+    return {
+      url: s.url,
+      authMode: s.authMode,
+      username: s.username,
+      password: maybeDecrypt(s.passwordEnc, this.appSecret) ?? null,
+      insecureTls: s.insecureTls,
+      loginPath: s.loginPath || '/iss/redirect.html',
+      userField: s.userField || 'Login',
+      passField: s.passField || 'Password',
+    };
+  }
+
   async create(userId: string, input: ConnectionInput): Promise<Connection> {
     const id = randomUUID();
     await this.db.insert(connections).values({
@@ -192,7 +324,8 @@ export class ConnectionRepo {
       name: input.name,
       host: input.host,
       port: input.port,
-      protocol: input.protocol === 'telnet' ? 'telnet' : 'ssh',
+      protocol: normProtocol(input.protocol),
+      settings: this.webColumn(input),
       sshUsername: input.sshUsername,
       credentialId: input.credentialId || null,
       jumpConnectionId: input.jumpConnectionId || null,
@@ -229,7 +362,8 @@ export class ConnectionRepo {
       name: input.name,
       host: input.host,
       port: input.port,
-      protocol: input.protocol === 'telnet' ? 'telnet' : 'ssh',
+      protocol: normProtocol(input.protocol),
+      settings: this.webColumn(input, existing.settings),
       sshUsername: input.sshUsername,
       credentialId: input.credentialId || null,
       jumpConnectionId: input.jumpConnectionId || null,

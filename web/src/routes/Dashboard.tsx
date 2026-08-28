@@ -66,6 +66,10 @@ export function DashboardPage() {
 
   function open(c: Connection) {
     if (c.canOpen === false || !canWrite) return;
+    if (c.protocol === 'http') {
+      navigate(`/web/${c.id}`);
+      return;
+    }
     openTab({ connectionId: c.id, title: c.name, color: c.color ?? undefined });
     navigate('/terminal');
   }
@@ -144,7 +148,7 @@ export function DashboardPage() {
                 >
                   <div className="dash-top">
                     <span className="dash-dot" />
-                    <span className={`dash-proto ${c.protocol}`}>{c.protocol}</span>
+                    <span className={`dash-proto ${c.protocol}`}>{c.protocol === 'http' ? 'web' : c.protocol}</span>
                   </div>
                   <div className="dash-name">{c.name}</div>
                   <div className="mono small muted">

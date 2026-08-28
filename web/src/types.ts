@@ -60,7 +60,19 @@ export interface Credential {
   ownerName?: string;
 }
 
-export type Protocol = 'ssh' | 'telnet';
+export type Protocol = 'ssh' | 'telnet' | 'http';
+export type WebAuthMode = 'form' | 'basic' | 'none';
+
+export interface WebSettings {
+  url: string;
+  authMode: WebAuthMode;
+  username: string | null;
+  hasPassword: boolean;
+  insecureTls: boolean;
+  loginPath: string | null;
+  userField: string | null;
+  passField: string | null;
+}
 
 export interface Connection {
   id: string;
@@ -68,6 +80,7 @@ export interface Connection {
   host: string;
   port: number;
   protocol: Protocol;
+  web: WebSettings | null;
   sshUsername: string;
   credentialId: string | null;
   jumpConnectionId: string | null;

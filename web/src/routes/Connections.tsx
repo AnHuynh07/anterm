@@ -39,7 +39,7 @@ export function ConnectionsPage() {
   });
   const { data: serverInfo } = useQuery({
     queryKey: ['server-info'],
-    queryFn: () => api<{ status: string; adhoc: boolean; telnet?: boolean }>('/health'),
+    queryFn: () => api<{ status: string; adhoc: boolean; telnet?: boolean; webProxy?: boolean }>('/health'),
   });
   const { data: credData } = useQuery({
     queryKey: ['credentials'],
@@ -100,6 +100,10 @@ export function ConnectionsPage() {
   });
 
   function open(c: Connection) {
+    if (c.protocol === 'http') {
+      navigate(`/web/${c.id}`);
+      return;
+    }
     openTab({ connectionId: c.id, title: c.name, color: c.color ?? undefined });
     navigate('/terminal');
   }
@@ -239,14 +243,14 @@ export function ConnectionsPage() {
                     <td>
                       <div className="conn-name">
                         {c.name}
-                        {c.protocol === 'telnet' && (
-                          <Badge tone="warn">telnet</Badge>
-                        )}
+                        {c.protocol === 'telnet' && <Badge tone="warn">telnet</Badge>}
+                        {c.protocol === 'http' && <Badge tone="info">web</Badge>}
                       </div>
                       <div className="mono small muted">
                         {jumpName && <span title="jump host">↳ via {jumpName} · </span>}
-                        {c.protocol === 'telnet' ? '' : `${c.sshUsername}@`}
-                        {c.host}:{c.port}
+                        {c.protocol === 'http'
+                          ? (c.web?.url ?? c.host)
+                          : `${c.protocol === 'telnet' ? '' : `${c.sshUsername}@`}${c.host}:${c.port}`}
                       </div>
                       {c.tags.length > 0 && (
                         <div className="tag-row">
@@ -261,6 +265,10 @@ export function ConnectionsPage() {
                     <td>
                       {c.protocol === 'telnet' ? (
                         <Badge tone="warn">no auth</Badge>
+                      ) : c.protocol === 'http' ? (
+                        <Badge tone={c.web?.authMode === 'none' ? 'neutral' : 'info'}>
+                          {c.web?.authMode === 'basic' ? 'basic' : c.web?.authMode === 'none' ? 'open' : 'web login'}
+                        </Badge>
                       ) : linkedCred ? (
                         <Badge tone="info">{linkedCred.name}</Badge>
                       ) : (
@@ -353,6 +361,7 @@ export function ConnectionsPage() {
           credentials={credData?.credentials ?? []}
           connections={conns}
           allowTelnet={serverInfo?.telnet ?? false}
+          allowWebProxy={serverInfo?.webProxy ?? false}
           busy={save.isPending}
           error={save.error ? (save.error as Error).message : undefined}
           onCancel={() => setEditing(null)}
@@ -390,5 +399,17 @@ function toBody(value: ConnectionFormValue) {
   const loginPassword = value.loginPassword.length ? value.loginPassword : undefined;
   // clearing the enable checkbox explicitly wipes the stored enable password
   const enablePassword = !value.enableMode ? null : value.enablePassword.length ? value.enablePassword : undefined;
-  return { ...base, secret, passphrase, loginPassword, enablePassword };
+
+  const settings =
+    value.protocol === 'http'
+      ? {
+          url: value.webUrl.trim(),
+          authMode: value.webAuthMode,
+          username: value.webUsername.trim() || null,
+          insecureTls: value.webInsecureTls,
+          ...(value.webPassword.length ? { password: value.webPassword } : {}),
+        }
+      : null;
+
+  return { ...base, settings, secret, passphrase, loginPassword, enablePassword };
 }

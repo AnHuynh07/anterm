@@ -14,6 +14,7 @@ import { DashboardPage } from './routes/Dashboard';
 import { ConnectionsPage } from './routes/Connections';
 import { CredentialsPage } from './routes/Credentials';
 import { TerminalPage } from './routes/Terminal';
+import { WebDevicePage } from './routes/WebDevice';
 import { SessionsPage } from './routes/Sessions';
 import { SettingsPage } from './routes/Settings';
 import { UsersPage } from './routes/Users';
@@ -47,6 +48,7 @@ const router = createBrowserRouter(
         { path: 'terminal/:connectionId', element: <TerminalPage /> },
         { path: 'terminal/shared/:sharedToken', element: <TerminalPage /> },
         { path: 'terminal', element: <TerminalPage /> },
+        { path: 'web/:id', element: <WebDevicePage /> },
         { path: 'sessions', element: <SessionsPage /> },
         { path: 'users', element: <AdminOnly><UsersPage /></AdminOnly> },
         { path: 'activity', element: <AdminOnly><ActivityPage /></AdminOnly> },

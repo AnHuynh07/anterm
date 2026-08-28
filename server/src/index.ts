@@ -32,6 +32,7 @@ import { Alerter } from './alerts.js';
 import { ReachabilityMonitor } from './health/monitor.js';
 import { buildApp } from './http/app.js';
 import { attachTerminalWs, LiveRegistry } from './ws/terminal.js';
+import { WebProxyRegistry } from './web/proxy.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
 
   const activity = new ActivityLog(dbHandle.db, log);
   const liveSessions = new LiveRegistry();
+  const webProxy = new WebProxyRegistry();
   const ctx: AppContext = {
     config,
     log,
@@ -69,6 +71,7 @@ async function main(): Promise<void> {
     settings,
     alerter,
     liveSessions,
+    webProxy,
   };
 
   const app = await buildApp(ctx);

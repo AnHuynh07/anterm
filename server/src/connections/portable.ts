@@ -10,7 +10,7 @@ export interface PortableConnection {
   name: string;
   host: string;
   port: number;
-  protocol: 'ssh' | 'telnet';
+  protocol: 'ssh' | 'telnet' | 'http';
   sshUsername: string;
   credential: string | null;
   authType: 'password' | 'key' | 'agent';
@@ -21,6 +21,10 @@ export interface PortableConnection {
   setupCommands: string | null;
   initCommand: string | null;
   runbook: string | null;
+  /** web-managed device (protocol 'http') — never the password */
+  webUrl: string | null;
+  webAuthMode: string | null;
+  webUsername: string | null;
 }
 
 const FIELDS: (keyof PortableConnection)[] = [
@@ -38,14 +42,28 @@ const FIELDS: (keyof PortableConnection)[] = [
   'setupCommands',
   'initCommand',
   'runbook',
+  'webUrl',
+  'webAuthMode',
+  'webUsername',
 ];
 
+function webOf(raw: string | null): { url: string | null; authMode: string | null; username: string | null } {
+  if (!raw) return { url: null, authMode: null, username: null };
+  try {
+    const s = JSON.parse(raw) as { url?: string; authMode?: string; username?: string };
+    return { url: s.url ?? null, authMode: s.authMode ?? null, username: s.username ?? null };
+  } catch {
+    return { url: null, authMode: null, username: null };
+  }
+}
+
 export function toPortable(c: Connection, credName: string | null): PortableConnection {
+  const w = webOf(c.settings ?? null);
   return {
     name: c.name,
     host: c.host,
     port: c.port,
-    protocol: c.protocol === 'telnet' ? 'telnet' : 'ssh',
+    protocol: c.protocol === 'telnet' ? 'telnet' : c.protocol === 'http' ? 'http' : 'ssh',
     sshUsername: c.sshUsername,
     credential: credName,
     authType: c.authType,
@@ -56,6 +74,9 @@ export function toPortable(c: Connection, credName: string | null): PortableConn
     setupCommands: c.setupCommands ?? null,
     initCommand: c.initCommand ?? null,
     runbook: c.runbook ?? null,
+    webUrl: w.url,
+    webAuthMode: w.authMode,
+    webUsername: w.username,
   };
 }
 
@@ -112,24 +133,30 @@ export function parseImport(format: 'json' | 'csv', data: string): PortableConne
   const rows: Record<string, unknown>[] =
     format === 'csv' ? parseCsv(data) : normaliseJson(JSON.parse(data));
 
-  return rows.map((r) => ({
-    name: str(r.name),
-    host: str(r.host),
-    port: Number(r.port) || 22,
-    protocol: String(r.protocol).toLowerCase() === 'telnet' ? 'telnet' : 'ssh',
-    sshUsername: str(r.sshUsername ?? r.ssh_username ?? r.user),
-    credential: opt(r.credential),
-    authType: (['password', 'key', 'agent'] as const).includes(r.authType as never)
-      ? (r.authType as PortableConnection['authType'])
-      : 'password',
-    group: opt(r.group ?? r.groupName),
-    tags: str(r.tags),
-    color: opt(r.color),
-    loginUsername: opt(r.loginUsername),
-    setupCommands: opt(r.setupCommands),
-    initCommand: opt(r.initCommand),
-    runbook: opt(r.runbook),
-  }));
+  return rows.map((r) => {
+    const proto = String(r.protocol).toLowerCase();
+    return {
+      name: str(r.name),
+      host: str(r.host),
+      port: Number(r.port) || 22,
+      protocol: proto === 'telnet' ? 'telnet' : proto === 'http' ? 'http' : 'ssh',
+      sshUsername: str(r.sshUsername ?? r.ssh_username ?? r.user),
+      credential: opt(r.credential),
+      authType: (['password', 'key', 'agent'] as const).includes(r.authType as never)
+        ? (r.authType as PortableConnection['authType'])
+        : 'password',
+      group: opt(r.group ?? r.groupName),
+      tags: str(r.tags),
+      color: opt(r.color),
+      loginUsername: opt(r.loginUsername),
+      setupCommands: opt(r.setupCommands),
+      initCommand: opt(r.initCommand),
+      runbook: opt(r.runbook),
+      webUrl: opt(r.webUrl),
+      webAuthMode: opt(r.webAuthMode),
+      webUsername: opt(r.webUsername),
+    };
+  });
 }
 
 function normaliseJson(parsed: unknown): Record<string, unknown>[] {
@@ -155,6 +182,16 @@ export function toConnectionInput(
     host: p.host,
     port: p.port,
     protocol: p.protocol,
+    settings:
+      p.protocol === 'http' && p.webUrl
+        ? {
+            url: p.webUrl,
+            authMode:
+              p.webAuthMode === 'basic' || p.webAuthMode === 'none' ? p.webAuthMode : 'form',
+            username: p.webUsername,
+            // password is never in the portable format — re-enter after import
+          }
+        : null,
     sshUsername: p.sshUsername,
     credentialId,
     authType: p.authType,

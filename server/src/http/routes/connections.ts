@@ -15,11 +15,23 @@ import { SnapshotRepo, toSnapshotDto } from '../../config/snapshots.js';
 import { configDiff, diffStats } from '../../config/diff.js';
 import { auditActor, requireAuth, requireWriter } from '../app.js';
 
+const webSettingsBody = z.object({
+  url: z.string().url().max(2048),
+  authMode: z.enum(['form', 'basic', 'none']).default('form'),
+  username: z.string().max(128).nullish(),
+  password: z.string().max(1024).optional(), // omitted = keep
+  insecureTls: z.boolean().optional(),
+  loginPath: z.string().max(512).nullish(),
+  userField: z.string().max(64).nullish(),
+  passField: z.string().max(64).nullish(),
+});
+
 const upsertBody = z.object({
   name: z.string().min(1).max(80),
   host: z.string().min(1).max(255),
   port: z.number().int().positive().max(65535).default(22),
-  protocol: z.enum(['ssh', 'telnet']).nullish(),
+  protocol: z.enum(['ssh', 'telnet', 'http']).nullish(),
+  settings: webSettingsBody.nullish(),
   sshUsername: z.string().max(128).default(''),
   credentialId: z.string().uuid().nullish(),
   jumpConnectionId: z.string().uuid().nullish(),
@@ -326,6 +338,21 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     await repo.removeAny(id);
     ctx.activity.record({ actor: auditActor(req), action: 'connection.delete', target: loaded.conn.name });
     return { ok: true };
+  });
+
+  // web-managed device: reveal the stored credentials for "open in a new tab"
+  app.get('/connections/:id/web', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const { id } = req.params as { id: string };
+    const loaded = await loadForActor(user, id);
+    if (!loaded) return reply.code(404).send({ error: 'connection not found' });
+    if (loaded.conn.protocol !== 'http') return reply.code(400).send({ error: 'not a web device' });
+    if (!loaded.access.canOpen) return reply.code(403).send({ error: 'you do not have access to this device' });
+    const web = repo.resolveWebTarget(loaded.conn);
+    if (!web) return reply.code(400).send({ error: 'web device settings are incomplete' });
+    ctx.activity.record({ actor: auditActor(req), action: 'webdevice.reveal', target: web.url });
+    return { url: web.url, username: web.username, password: web.password, authMode: web.authMode };
   });
 
   // ---- sharing ----
