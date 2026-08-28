@@ -233,6 +233,12 @@ const migrations: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS reachability_events_conn_idx ON reachability_events (connection_id, ts);
     `,
   },
+  {
+    id: '0012_runbook',
+    sql: /* sql */ `
+      ALTER TABLE connections ADD COLUMN runbook TEXT;
+    `,
+  },
 ];
 
 export function runMigrations(raw: Database.Database): void {

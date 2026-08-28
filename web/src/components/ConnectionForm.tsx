@@ -20,6 +20,7 @@ export interface ConnectionFormValue {
   enableMode: boolean;
   enablePassword: string;
   setupCommands: string;
+  runbook: string;
   // organisation
   groupName: string;
   tags: string;
@@ -65,6 +66,7 @@ export function ConnectionForm({
     enableMode: initial?.hasEnablePassword ?? false,
     enablePassword: '',
     setupCommands: initial?.setupCommands ?? '',
+    runbook: initial?.runbook ?? '',
     groupName: initial?.groupName ?? '',
     tags: initial?.tags.join(', ') ?? '',
     color: initial?.color ?? '',
@@ -327,6 +329,15 @@ export function ConnectionForm({
                 max={3600}
                 value={v.antiIdleSeconds}
                 onChange={(e) => set('antiIdleSeconds', Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Runbook <span className="muted small">— markdown notes shown beside the terminal (console location, reboot time, gotchas…)</span>
+              <textarea
+                rows={6}
+                value={v.runbook}
+                onChange={(e) => set('runbook', e.target.value)}
+                placeholder={'## Reboot\n- Console is in **rack 3**, port 12\n- `reload` takes ~4 min to come back\n- On-call: [runbook wiki](https://wiki.example.com/core-sw)'}
               />
             </label>
           </div>

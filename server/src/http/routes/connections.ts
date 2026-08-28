@@ -31,6 +31,7 @@ const upsertBody = z.object({
   loginPassword: z.string().max(4096).nullish(),
   enablePassword: z.string().max(4096).nullish(),
   setupCommands: z.string().max(8000).nullish(),
+  runbook: z.string().max(20_000).nullish(),
   groupName: z.string().max(80).nullish(),
   tags: z.string().max(500).nullish(),
   color: z.enum(['red', 'amber', 'green', 'blue', 'violet']).nullish(),

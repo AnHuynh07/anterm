@@ -77,6 +77,7 @@ export interface Connection {
   hasLoginPassword: boolean;
   hasEnablePassword: boolean;
   setupCommands: string | null;
+  runbook: string | null;
   groupName: string | null;
   tags: string[];
   color: ConnectionColor | null;

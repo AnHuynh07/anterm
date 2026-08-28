@@ -96,6 +96,8 @@ export const connections = sqliteTable(
     loginPasswordEnc: text('login_password_enc'),
     enablePasswordEnc: text('enable_password_enc'),
     setupCommands: text('setup_commands'), // newline-separated, typed after login
+    // operator-facing notes shown beside the terminal (markdown)
+    runbook: text('runbook'),
     // --- organisation ---
     groupName: text('group_name'),
     tags: text('tags'), // comma-separated, lowercased

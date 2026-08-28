@@ -6,6 +6,7 @@ import type { Connection } from '../types';
 import { useTerminalTabs } from '../hooks/useTerminalTabs';
 import { TerminalView } from '../components/Terminal';
 import { COLOR_HEX } from '../components/colors';
+import { renderMarkdown } from '../lib/markdown';
 
 export function TerminalPage() {
   const { connectionId, sharedToken } = useParams();
@@ -47,6 +48,8 @@ export function TerminalPage() {
   const liveTabs = useMemo(() => tabs.filter((t) => mounted.has(t.key)), [tabs, mounted]);
 
   const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0];
+  const activeConn = data?.connections.find((c) => c.id === activeTab?.connectionId);
+  const [showRunbook, setShowRunbook] = useState(false);
 
   if (tabs.length === 0) {
     return (
@@ -84,6 +87,15 @@ export function TerminalPage() {
           </div>
         ))}
         <span className="spacer" />
+        {activeConn?.runbook && (
+          <button
+            className={`btn sm ${showRunbook ? 'primary' : 'ghost'}`}
+            title="Show this device's runbook notes"
+            onClick={() => setShowRunbook((s) => !s)}
+          >
+            Runbook
+          </button>
+        )}
         {tabs.length > 1 && (
           <button
             className={`btn sm ${broadcast ? 'danger' : 'ghost'}`}
@@ -104,22 +116,36 @@ export function TerminalPage() {
         </div>
       )}
 
-      <div className="terminal-stage">
-        {liveTabs.map((t) => (
-          <div
-            key={t.key}
-            className="terminal-slot"
-            style={{ visibility: t.key === activeKey ? 'visible' : 'hidden', zIndex: t.key === activeKey ? 1 : 0 }}
-          >
-            <TerminalView
-              tabKey={t.key}
-              connectionId={t.connectionId}
-              adhoc={t.adhoc}
-              sharedToken={t.sharedToken}
-              onExit={() => undefined}
-            />
-          </div>
-        ))}
+      <div className="terminal-body">
+        <div className="terminal-stage">
+          {liveTabs.map((t) => (
+            <div
+              key={t.key}
+              className="terminal-slot"
+              style={{ visibility: t.key === activeKey ? 'visible' : 'hidden', zIndex: t.key === activeKey ? 1 : 0 }}
+            >
+              <TerminalView
+                tabKey={t.key}
+                connectionId={t.connectionId}
+                adhoc={t.adhoc}
+                sharedToken={t.sharedToken}
+                onExit={() => undefined}
+              />
+            </div>
+          ))}
+        </div>
+
+        {showRunbook && activeConn?.runbook && (
+          <aside className="runbook-panel">
+            <div className="runbook-head">
+              <span>Runbook — {activeConn.name}</span>
+              <button className="tab-close" title="Close" onClick={() => setShowRunbook(false)}>
+                ×
+              </button>
+            </div>
+            <div className="runbook-body md">{renderMarkdown(activeConn.runbook)}</div>
+          </aside>
+        )}
       </div>
     </div>
   );

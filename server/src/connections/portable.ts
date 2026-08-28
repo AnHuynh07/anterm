@@ -19,6 +19,7 @@ export interface PortableConnection {
   loginUsername: string | null;
   setupCommands: string | null;
   initCommand: string | null;
+  runbook: string | null;
 }
 
 const FIELDS: (keyof PortableConnection)[] = [
@@ -34,6 +35,7 @@ const FIELDS: (keyof PortableConnection)[] = [
   'loginUsername',
   'setupCommands',
   'initCommand',
+  'runbook',
 ];
 
 export function toPortable(c: Connection, credName: string | null): PortableConnection {
@@ -50,6 +52,7 @@ export function toPortable(c: Connection, credName: string | null): PortableConn
     loginUsername: c.loginUsername ?? null,
     setupCommands: c.setupCommands ?? null,
     initCommand: c.initCommand ?? null,
+    runbook: c.runbook ?? null,
   };
 }
 
@@ -121,6 +124,7 @@ export function parseImport(format: 'json' | 'csv', data: string): PortableConne
     loginUsername: opt(r.loginUsername),
     setupCommands: opt(r.setupCommands),
     initCommand: opt(r.initCommand),
+    runbook: opt(r.runbook),
   }));
 }
 
@@ -155,5 +159,6 @@ export function toConnectionInput(
     loginUsername: p.loginUsername,
     setupCommands: p.setupCommands,
     initCommand: p.initCommand,
+    runbook: p.runbook,
   };
 }

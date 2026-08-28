@@ -26,6 +26,7 @@ export interface ConnectionInput {
   loginPassword?: string | null;
   enablePassword?: string | null;
   setupCommands?: string | null;
+  runbook?: string | null;
   // organisation
   groupName?: string | null;
   tags?: string | null;
@@ -73,6 +74,7 @@ export interface ConnectionDto {
   hasLoginPassword: boolean;
   hasEnablePassword: boolean;
   setupCommands: string | null;
+  runbook: string | null;
   groupName: string | null;
   tags: string[];
   color: ConnectionColor | null;
@@ -107,6 +109,7 @@ export function toDto(c: Connection): ConnectionDto {
     hasLoginPassword: Boolean(c.loginPasswordEnc),
     hasEnablePassword: Boolean(c.enablePasswordEnc),
     setupCommands: c.setupCommands ?? null,
+    runbook: c.runbook ?? null,
     groupName: c.groupName ?? null,
     tags: c.tags ? c.tags.split(',').filter(Boolean) : [],
     color: c.color ?? null,
@@ -196,6 +199,7 @@ export class ConnectionRepo {
       loginPasswordEnc: this.enc(input.loginPassword),
       enablePasswordEnc: this.enc(input.enablePassword),
       setupCommands: input.setupCommands || null,
+      runbook: input.runbook?.trim() || null,
       groupName: input.groupName?.trim() || null,
       tags: normTags(input.tags),
       color: normColor(input.color),
@@ -227,6 +231,7 @@ export class ConnectionRepo {
       configCommand: input.configCommand?.trim() || null,
       loginUsername: input.loginUsername || null,
       setupCommands: input.setupCommands || null,
+      runbook: input.runbook?.trim() || null,
       groupName: input.groupName?.trim() || null,
       tags: normTags(input.tags),
       color: normColor(input.color),

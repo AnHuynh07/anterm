@@ -102,6 +102,28 @@ describe('ConnectionRepo organisation fields', () => {
     expect(toDto(updated!).tags).toEqual([]);
   });
 
+  it('stores a runbook and clears it when blanked', async () => {
+    const { repo, userId } = await setup();
+    const c = await repo.create(userId, {
+      name: 'rb',
+      host: 'h',
+      port: 22,
+      sshUsername: 'u',
+      authType: 'agent',
+      runbook: '  ## Reboot\n- console in rack 3  ',
+    });
+    expect(toDto(c).runbook).toBe('## Reboot\n- console in rack 3');
+    const cleared = await repo.update(userId, c.id, {
+      name: 'rb',
+      host: 'h',
+      port: 22,
+      sshUsername: 'u',
+      authType: 'agent',
+      runbook: '   ',
+    });
+    expect(toDto(cleared!).runbook).toBeNull();
+  });
+
   it('resolveLoginAutomation decrypts round-trip', async () => {
     const { repo, userId } = await setup();
     const c = await repo.create(userId, {

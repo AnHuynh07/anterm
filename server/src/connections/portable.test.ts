@@ -15,6 +15,7 @@ const sample: PortableConnection = {
   loginUsername: 'netadmin',
   setupCommands: 'terminal length 0\nshow version',
   initCommand: null,
+  runbook: '## Reboot\n- console in rack 3',
 };
 
 describe('portable CSV', () => {
@@ -28,6 +29,7 @@ describe('portable CSV', () => {
       group: 'Site A / Core',
       tags: 'cisco,prod',
       setupCommands: 'terminal length 0\nshow version',
+      runbook: '## Reboot\n- console in rack 3',
     });
   });
 });

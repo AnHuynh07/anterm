@@ -367,6 +367,7 @@ function toBody(value: ConnectionFormValue) {
     initCommand: value.initCommand.trim() || null,
     loginUsername: value.loginUsername.trim() || null,
     setupCommands: value.setupCommands.trim() || null,
+    runbook: value.runbook.trim() || null,
     groupName: value.groupName.trim() || null,
     tags: value.tags.trim() || null,
     color: value.color || null,

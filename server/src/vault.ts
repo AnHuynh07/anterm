@@ -48,6 +48,7 @@ export interface VaultConnection {
   loginPassword: string | null;
   enablePassword: string | null;
   setupCommands: string | null;
+  runbook: string | null;
   groupName: string | null;
   tags: string | null;
   color: string | null;
@@ -106,6 +107,7 @@ export async function buildVaultBundle(db: Db, appSecret: string): Promise<Vault
       loginPassword: maybeDecrypt(c.loginPasswordEnc, appSecret) ?? null,
       enablePassword: maybeDecrypt(c.enablePasswordEnc, appSecret) ?? null,
       setupCommands: c.setupCommands ?? null,
+      runbook: c.runbook ?? null,
       groupName: c.groupName ?? null,
       tags: c.tags ?? null,
       color: c.color ?? null,
@@ -207,6 +209,7 @@ export async function applyVaultBundle(
         loginPasswordEnc: enc(c.loginPassword),
         enablePasswordEnc: enc(c.enablePassword),
         setupCommands: c.setupCommands,
+        runbook: c.runbook ?? null,
         groupName: c.groupName,
         tags: normTags(c.tags),
         color: (['red', 'amber', 'green', 'blue', 'violet'] as const).includes(c.color as never)
