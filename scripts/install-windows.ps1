@@ -20,9 +20,10 @@
   .\scripts\install-windows.ps1
 
 .NOTES
-  Native modules (better-sqlite3, argon2) ship prebuilt binaries for Windows x64,
-  so Visual Studio Build Tools are usually NOT required. `node-pty` is optional and
-  its build failure is harmless (only the local-shell mode is lost).
+  better-sqlite3 / argon2 ship prebuilt Windows x64 binaries for the current LTS
+  Node versions (20, 22, 24). On a Node version with no prebuild, npm falls back
+  to a C++ compile: re-run with -BuildTools, or install an even LTS Node.
+  `node-pty` is optional and its build failure is harmless (local-shell mode only).
 #>
 [CmdletBinding()]
 param(
@@ -35,7 +36,8 @@ param(
   [string] $AllowHosts,
   [switch] $AllowTelnet,
   [switch] $NoBuild,
-  [switch] $Start
+  [switch] $Start,
+  [switch] $BuildTools
 )
 
 $RepoUrl = 'https://github.com/AnHuynh07/anterm.git'
@@ -98,6 +100,26 @@ if (-not $nodeOk) {
   if ([int]($v.Split('.')[0]) -lt 20) { Die "Node.js v$v is still < 20. Install the current LTS from https://nodejs.org and re-run." }
   Ok "node v$v"
 }
+$nodeMajor = [int]((node -v).TrimStart('v').Split('.')[0])
+if ($nodeMajor % 2 -ne 0) {
+  Warn "node v$nodeMajor is an odd 'Current' release - native module prebuilds may lag."
+  Warn "If 'npm install' fails to compile, install an even LTS (22 or 24) instead."
+}
+
+# --- 2c. Optional: Visual Studio Build Tools (only needed if a native prebuild is missing) ---
+if ($BuildTools) {
+  if (Have 'cl') {
+    Ok "MSVC compiler already on PATH"
+  } elseif (-not (Have 'winget')) {
+    Warn "winget missing - install 'Visual Studio Build Tools' + the 'Desktop development with C++' workload manually."
+  } else {
+    Info "Installing Visual Studio Build Tools with the C++ workload (large download) ..."
+    winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget `
+      --accept-package-agreements --accept-source-agreements `
+      --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" 2>&1 | Out-Host
+    Refresh-Path
+  }
+}
 Ok "npm  v$(npm -v)"
 
 # --- 3. Locate or clone the repo ---
@@ -125,7 +147,19 @@ try {
   # --- 4. Dependencies ---
   Info "Installing dependencies (npm install) - this can take a few minutes ..."
   npm install --no-fund --no-audit 2>&1 | Out-Host
-  if ($LASTEXITCODE -ne 0) { Die "npm install failed - see the output above." }
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Warn "npm install failed. This is almost always a native module (better-sqlite3)"
+    Warn "with no prebuilt binary for your Node version, falling back to a C++ compile."
+    Warn ""
+    Warn "Pick ONE fix:"
+    Warn "  1) Use an even LTS Node (recommended):"
+    Warn "       winget install CoreyButler.NVMforWindows ; (reopen PowerShell)"
+    Warn "       nvm install 22 ; nvm use 22 ; then re-run this script"
+    Warn "  2) Install the C++ build tools and let it compile:"
+    Warn "       re-run this script with  -BuildTools   (adds ~3-6 GB)"
+    Die   "See the log path printed above for details."
+  }
   Ok "dependencies installed"
 
   # --- 5. .env ---

@@ -64,12 +64,15 @@ Script sẽ: cài **Git** + **Node.js LTS** qua `winget` nếu thiếu → clone
 tạo `start-anterm.bat` → (với `-Start`) chạy server luôn. In ra mật khẩu admin ở cuối.
 
 Tham số hữu ích: `-Port 8080` · `-AdminUser boss` · `-AllowHosts "10.0.0.5,sw1"` ·
-`-AllowTelnet` · `-NoBuild` (chỉ chuẩn bị, chạy dev sau) · `-Path D:\apps\anterm`.
+`-AllowTelnet` · `-NoBuild` (chỉ chuẩn bị, chạy dev sau) · `-Path D:\apps\anterm` ·
+`-BuildTools` (cài Visual Studio Build Tools nếu `npm install` cần biên dịch).
 
 Chạy lại script bất cứ lúc nào để cập nhật (nó `git pull` + build lại, **không đụng `.env`**).
 
-> `better-sqlite3` và `argon2` có sẵn bản build cho Windows x64 nên **thường không cần
-> Visual Studio Build Tools**. Nếu vẫn muốn WSL2: bỏ qua mục này, làm như Linux ở các mục dưới.
+> **Node.js:** `better-sqlite3` / `argon2` có bản build sẵn cho Windows x64 với các bản
+> **LTS chẵn** (20, 22, 24) → **không cần Visual Studio Build Tools**. Nếu máy đang chạy
+> bản **lẻ** ("Current" — 23, 25…) và `npm install` báo lỗi `gyp ERR! find VS`:
+> cài Node LTS 22 (dùng `nvm-windows`) rồi chạy lại, **hoặc** chạy script với `-BuildTools`.
 
 Các lần sau chỉ cần double-click **`start-anterm.bat`** trong thư mục cài.
 
@@ -226,7 +229,8 @@ DB trước khi update** bản lớn.
 
 | Triệu chứng | Cách xử lý |
 |---|---|
-| `npm install` lỗi native build | Cài build tools ở mục 1. Xoá `node_modules` + `package-lock.json` rồi cài lại. |
+| `npm install` lỗi native build | Xoá `node_modules`, `npm install` lại. |
+| `gyp ERR! find VS` / `Could not find any Visual Studio` (Windows) | Node đang ở bản **lẻ** không có prebuild → cài **Node LTS 22** (qua `nvm-windows`) rồi thử lại, **hoặc** cài build tools: `winget install Microsoft.VisualStudio.2022.BuildTools` + workload "Desktop development with C++" (script: cờ `-BuildTools`). |
 | Khởi động báo thiếu `ANTERM_APP_SECRET` | Đặt trong `.env` (≥ 16 ký tự) hoặc truyền `--app-secret`. |
 | Không đăng nhập được, log ghi "No users exist" | Đặt `ADMIN_USER` / `ADMIN_PASSWORD` rồi khởi động lại (chỉ tạo khi DB rỗng). |
 | Mở kết nối bị hỏi host key mãi | Bấm **Trust and continue** một lần; nếu key đổi thật sẽ có cảnh báo đỏ. |
