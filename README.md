@@ -19,6 +19,7 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 - **xterm.js terminal** with fit/resize, clipboard, web-links, search addons
 - **WebSocket transport** — binary frames for terminal I/O, JSON for control
 - **Login** (argon2, server-side sessions, CSRF-protected mutations, login rate-limiting)
+- **Two-factor auth** — per-user TOTP (RFC 6238) with QR setup and one-time recovery codes
 - **Roles & sharing** — `admin` / `operator` / `viewer`; an operator owns the connections
   they create and can **share** individual devices with other users (open-only, or with
   edit); a viewer is strictly read-only. Stored credentials are always used on the owner's
@@ -39,6 +40,11 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
   (`terminal length 0` …), then permanently disengages so interactive apps are untouched
 - **Jump host / ProxyJump** — reach a device by tunnelling through another saved connection
   (chain up to 4 bastions); the bastion's own credentials and host-key trust are reused
+- **Bulk actions** — select many devices and run one command across all of them in parallel,
+  with per-device output and a combined `.txt` download
+- **Config-change capture & diff** — snapshot a device's running config on demand or
+  automatically after a `write mem`; browse the timeline and diff any two versions
+- **Session sharing** — hand a colleague a link to watch your live terminal read-only
 - **Colour labels** — mark a connection red/"production"; its tab and a banner above the
   terminal turn red so you know which box you're typing on
 - **Import / export** the inventory as JSON or CSV (no secrets; credentials referenced by name)
@@ -60,6 +66,7 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
   results, auth types — so state is readable at a glance
 - **Keyword highlight** toggle in the terminal — colours `up` / `down` / `vlan N` / `trunk` /
   `err-disabled` … in plain output (skips interactive apps; off by default, remembered per browser)
+- **Scrollback search** in the terminal (Ctrl+Shift+F) with match highlighting and a counter
 - **Multiple terminal tabs**, bounded auto-reconnect on transient network drops
 - **WeTTY-compatible** CLI flags / env / config file, `--base` for reverse-proxy sub-paths,
   ad-hoc SSH mode (`--ssh-host`), and an optional local shell
