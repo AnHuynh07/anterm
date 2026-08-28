@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -7,6 +7,40 @@ import { useTerminalTabs } from '../hooks/useTerminalTabs';
 import { TerminalView } from '../components/Terminal';
 import { COLOR_HEX } from '../components/colors';
 import { renderMarkdown } from '../lib/markdown';
+
+type Layout = 'single' | 'split' | 'grid';
+const LAYOUT_KEY = 'anterm.term.layout';
+const NEXT: Record<Layout, Layout> = { single: 'split', split: 'grid', grid: 'single' };
+const LABEL: Record<Layout, string> = { single: 'Split view', split: 'Grid view', grid: 'Single view' };
+const CAP: Record<Layout, number> = { single: 1, split: 2, grid: 4 };
+
+function readLayout(): Layout {
+  try {
+    const v = localStorage.getItem(LAYOUT_KEY);
+    if (v === 'single' || v === 'split' || v === 'grid') return v;
+  } catch {
+    /* private mode */
+  }
+  return 'single';
+}
+
+/** Absolute geometry for pane `idx` of a `layout` grid — keeps every slot
+ *  positioned (never `display:none`) so background tabs stay connected. */
+function paneStyle(layout: Layout, idx: number): CSSProperties {
+  const cols = 2;
+  const rows = layout === 'grid' ? 2 : 1;
+  const r = Math.floor(idx / cols);
+  const c = idx % cols;
+  return {
+    position: 'absolute',
+    top: `${(r / rows) * 100}%`,
+    left: `${(c / cols) * 100}%`,
+    width: `${100 / cols}%`,
+    height: `${100 / rows}%`,
+    visibility: 'visible',
+    zIndex: 1,
+  };
+}
 
 export function TerminalPage() {
   const { connectionId, sharedToken } = useParams();
@@ -35,8 +69,8 @@ export function TerminalPage() {
   }, [connectionId, sharedToken, data, openTab, navigate]);
 
   // Every open tab keeps a live terminal while this page is mounted (so tab
-  // switching and Broadcast keep all sessions connected). New tabs are added as
-  // they open; a session that dropped resumes from its stored token.
+  // switching, split view and Broadcast keep all sessions connected). New tabs
+  // are added as they open; a session that dropped resumes from its stored token.
   const [mounted, setMounted] = useState<Set<string>>(() => new Set(tabs.map((t) => t.key)));
   useEffect(() => {
     setMounted((prev) => {
@@ -50,6 +84,28 @@ export function TerminalPage() {
   const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0];
   const activeConn = data?.connections.find((c) => c.id === activeTab?.connectionId);
   const [showRunbook, setShowRunbook] = useState(false);
+
+  const [layout, setLayout] = useState<Layout>(readLayout);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAYOUT_KEY, layout);
+    } catch {
+      /* private mode */
+    }
+  }, [layout]);
+
+  // effective layout collapses when there aren't enough tabs to fill it
+  const effLayout: Layout =
+    tabs.length <= 1 ? 'single' : layout === 'grid' && tabs.length === 2 ? 'split' : layout;
+
+  // which tabs get a pane, in stable tab order, with the active tab forced in
+  const paneKeys = useMemo(() => {
+    if (effLayout === 'single') return activeTab ? [activeTab.key] : [];
+    const cap = CAP[effLayout];
+    let keys = tabs.slice(0, cap).map((t) => t.key);
+    if (activeKey && !keys.includes(activeKey)) keys = [...keys.slice(0, cap - 1), activeKey];
+    return keys;
+  }, [effLayout, tabs, activeKey, activeTab]);
 
   if (tabs.length === 0) {
     return (
@@ -69,7 +125,9 @@ export function TerminalPage() {
         {tabs.map((t) => (
           <div
             key={t.key}
-            className={`tab ${t.key === activeKey ? 'active' : ''}`}
+            className={`tab ${t.key === activeKey ? 'active' : ''} ${
+              effLayout !== 'single' && paneKeys.includes(t.key) ? 'in-pane' : ''
+            }`}
             onClick={() => setActive(t.key)}
             style={t.color ? { borderTop: `2px solid ${COLOR_HEX[t.color]}` } : undefined}
           >
@@ -98,6 +156,15 @@ export function TerminalPage() {
         )}
         {tabs.length > 1 && (
           <button
+            className="btn sm ghost"
+            title="Cycle terminal layout: single · split · grid"
+            onClick={() => setLayout((l) => NEXT[l])}
+          >
+            {LABEL[layout]}
+          </button>
+        )}
+        {tabs.length > 1 && (
+          <button
             className={`btn sm ${broadcast ? 'danger' : 'ghost'}`}
             title="Send keystrokes typed in any tab to every open session"
             onClick={() => setBroadcast(!broadcast)}
@@ -117,22 +184,37 @@ export function TerminalPage() {
       )}
 
       <div className="terminal-body">
-        <div className="terminal-stage">
-          {liveTabs.map((t) => (
-            <div
-              key={t.key}
-              className="terminal-slot"
-              style={{ visibility: t.key === activeKey ? 'visible' : 'hidden', zIndex: t.key === activeKey ? 1 : 0 }}
-            >
-              <TerminalView
-                tabKey={t.key}
-                connectionId={t.connectionId}
-                adhoc={t.adhoc}
-                sharedToken={t.sharedToken}
-                onExit={() => undefined}
-              />
-            </div>
-          ))}
+        <div className={`terminal-stage layout-${effLayout}`}>
+          {liveTabs.map((t) => {
+            const paneIdx = paneKeys.indexOf(t.key);
+            const inPane = paneIdx !== -1;
+            const multi = effLayout !== 'single';
+            const style: CSSProperties = inPane
+              ? multi
+                ? paneStyle(effLayout, paneIdx)
+                : { visibility: 'visible', zIndex: 1 }
+              : { visibility: 'hidden', zIndex: 0 };
+            return (
+              <div
+                key={t.key}
+                className={`terminal-slot ${multi && inPane ? 'pane' : ''} ${
+                  multi && inPane && t.key === activeKey ? 'pane-active' : ''
+                }`}
+                style={style}
+                onMouseDownCapture={() => {
+                  if (multi && inPane) setActive(t.key);
+                }}
+              >
+                <TerminalView
+                  tabKey={t.key}
+                  connectionId={t.connectionId}
+                  adhoc={t.adhoc}
+                  sharedToken={t.sharedToken}
+                  onExit={() => undefined}
+                />
+              </div>
+            );
+          })}
         </div>
 
         {showRunbook && activeConn?.runbook && (

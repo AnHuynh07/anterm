@@ -977,6 +977,11 @@ code {
   background: var(--term-bg);
   color: #e2e8f0;
 }
+/* tab is currently shown in a split/grid pane (but not the focused one) */
+.tab.in-pane:not(.active) {
+  color: #cbd5e1;
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
 .tab-close {
   border: none;
   background: transparent;
@@ -1110,6 +1115,15 @@ code {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* split / grid view: hairline between panes + a ring on the focused one */
+.terminal-slot.pane {
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+.terminal-slot.pane-active {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 .terminal-wrap {
   position: relative;
