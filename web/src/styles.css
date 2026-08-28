@@ -48,7 +48,8 @@
   --term-bg: #0f172a;
   /* WhatsApp-style tiled doodle behind the content (cards sit opaque on top) */
   --doodle: url('./assets/doodle.svg');
-  --bg-wash: rgba(246, 247, 249, 0.6);
+  --doodle-size: 440px 440px;
+  --bg-wash: rgba(246, 247, 249, 0.42);
   color-scheme: light;
 }
 
@@ -236,9 +237,8 @@ h2 {
   overflow: auto;
   background-color: var(--bg);
   background-image: linear-gradient(var(--bg-wash), var(--bg-wash)), var(--doodle);
-  background-size:
-    auto,
-    360px 360px;
+  background-size: auto, var(--doodle-size);
+  background-attachment: fixed, fixed;
 }
 
 .page {
@@ -260,7 +260,8 @@ h2 {
   padding: 24px;
   background-color: var(--bg);
   background-image: var(--doodle);
-  background-size: 360px 360px;
+  background-size: var(--doodle-size);
+  background-attachment: fixed;
 }
 
 /* ---------- cards & forms ---------- */
@@ -800,7 +801,9 @@ code {
   display: flex;
   gap: 2px;
   padding: 8px 10px 0;
-  background: var(--bg-soft);
+  background-color: var(--bg-soft);
+  background-image: linear-gradient(rgba(238, 241, 244, 0.5), rgba(238, 241, 244, 0.5)), var(--doodle);
+  background-size: auto, var(--doodle-size);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
 }
@@ -895,7 +898,9 @@ code {
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.5);
+  background-color: rgba(15, 23, 42, 0.5);
+  background-image: var(--doodle);
+  background-size: var(--doodle-size);
   backdrop-filter: blur(2px);
   display: grid;
   place-items: center;
