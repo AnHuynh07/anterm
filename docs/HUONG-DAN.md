@@ -35,7 +35,18 @@ Hoặc tải file ZIP từ GitHub (nút **Code → Download ZIP**) rồi giải 
 
 ## 2b. Windows — script cài tự động
 
-Mở **PowerShell** (người dùng thường, không cần admin) và chạy:
+Mở **PowerShell** (người dùng thường, không cần admin).
+
+**Nếu repo đang PRIVATE** (mặc định) — clone trước rồi chạy script trong repo:
+
+```powershell
+winget install --id Git.Git -e                     # nếu chưa có Git
+git clone https://github.com/AnHuynh07/anterm.git   # đăng nhập GitHub khi được hỏi
+cd anterm
+powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Start
+```
+
+**Nếu repo là PUBLIC** — chạy thẳng một dòng:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force
@@ -43,9 +54,14 @@ iwr https://raw.githubusercontent.com/AnHuynh07/anterm/main/scripts/install-wind
 .\install-windows.ps1 -Start
 ```
 
-Script sẽ: cài **Git** + **Node.js LTS** qua `winget` nếu thiếu → clone repo → `npm install`
-→ tạo `.env` với secret + mật khẩu admin ngẫu nhiên → `npm run build` → tạo `start-anterm.bat`
-→ (với `-Start`) chạy server luôn. In ra mật khẩu admin ở cuối.
+> `raw.githubusercontent.com` trả **404** với repo private nếu không có token — đó là lý do
+> phải clone trước. Muốn dùng dòng một lệnh: đổi repo sang Public
+> (GitHub → Settings → General → Danger Zone → Change visibility). Repo không chứa secret nào
+> (`.env`, DB, key đều đã gitignore).
+
+Script sẽ: cài **Git** + **Node.js LTS** qua `winget` nếu thiếu → clone/cập nhật repo →
+`npm install` → tạo `.env` với secret + mật khẩu admin ngẫu nhiên → `npm run build` →
+tạo `start-anterm.bat` → (với `-Start`) chạy server luôn. In ra mật khẩu admin ở cuối.
 
 Tham số hữu ích: `-Port 8080` · `-AdminUser boss` · `-AllowHosts "10.0.0.5,sw1"` ·
 `-AllowTelnet` · `-NoBuild` (chỉ chuẩn bị, chạy dev sau) · `-Path D:\apps\anterm`.
