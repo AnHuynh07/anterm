@@ -3,8 +3,9 @@ import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
+import { eq } from 'drizzle-orm';
 import type { AppContext } from '../context.js';
-import type { User } from '../db/schema.js';
+import { hostKeys, type User } from '../db/schema.js';
 import { AuditLog } from '../audit.js';
 import { ConnectionRepo } from '../connections/repo.js';
 import { CredentialRepo, resolveTarget } from '../connections/credentials.js';
@@ -12,7 +13,9 @@ import { ShareRepo } from '../connections/shares.js';
 import { connAccess } from '../access.js';
 import { SshSession } from '../ssh/client.js';
 import { dialThroughJumps } from '../ssh/jump.js';
+import { runCommand } from '../ssh/runner.js';
 import { LocalSession } from '../ssh/local.js';
+import { SnapshotRepo, isConfigSaveCommand } from '../config/snapshots.js';
 import type { TerminalBackend } from '../ssh/backend.js';
 import { AutoLogin, type AutoLoginConfig } from '../ssh/autologin.js';
 import { CommandExtractor, SessionRecorder } from '../ssh/recorder.js';
@@ -74,6 +77,7 @@ interface Target {
   auditTarget: string;
   local?: boolean;
   jumps?: JumpHopSpec[];
+  configCommand?: string;
 }
 
 export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => void {
@@ -162,6 +166,7 @@ class LiveSession {
   private pendingHostKey: ((accept: boolean) => void) | null = null;
   private jumpDispose: (() => void) | null = null;
   private shared = false;
+  private sawConfigSave = false;
 
   constructor(
     private readonly ctx: AppContext,
@@ -388,6 +393,7 @@ class LiveSession {
       this.pendingCommands.push(...cmds);
       this.commandCount += cmds.length;
       this.scheduleCommandFlush();
+      if (cmds.some(isConfigSaveCommand)) this.sawConfigSave = true;
     }
     this.backend?.write(data);
   }
@@ -482,6 +488,7 @@ class LiveSession {
       /* ignore */
     }
     this.flushCommands();
+    const closedAuditId = this.auditId;
     if (this.auditId) {
       void this.deps.audit.close(this.auditId, {
         bytesIn: this.bytesIn,
@@ -494,6 +501,57 @@ class LiveSession {
     this.fanoutMsg({ t: 'status', state: 'closed', detail: reason });
     for (const c of this.clients) c.detachFromLive();
     this.clients.clear();
+
+    if (this.sawConfigSave && this.target.connectionId && !this.target.local && !this.target.jumps?.length) {
+      void this.captureConfigSnapshot('auto-after-save', closedAuditId).catch((err) =>
+        this.ctx.log.info({ err: (err as Error).message }, 'auto config snapshot failed'),
+      );
+    }
+  }
+
+  /** Best-effort: reconnect briefly, dump the running config, store a snapshot. */
+  async captureConfigSnapshot(
+    reason: 'manual' | 'auto-after-save' | 'auto',
+    sessionId?: string | null,
+    triggeredBy?: string,
+  ): Promise<{ changed: boolean; lines: number } | null> {
+    const connId = this.target.connectionId;
+    if (!connId) return null;
+    const cmd = this.target.configCommand || 'show running-config';
+    const known = await this.ctx.db.query.hostKeys.findFirst({
+      where: eq(hostKeys.hostport, `${this.target.host.toLowerCase()}:${this.target.port}`),
+    });
+    if (!known) return null;
+
+    const res = await runCommand({
+      host: this.target.host,
+      port: this.target.port,
+      username: this.target.username,
+      password: this.target.password,
+      privateKey: this.target.privateKey,
+      passphrase: this.target.passphrase,
+      autoLogin: this.target.autoLogin ?? null,
+      command: cmd,
+      idleMs: 3500,
+      maxMs: 45_000,
+      verifyHostKey: async (info) => info.fingerprint === known.fingerprintSha256,
+    });
+    if (!res.ok || !res.output.trim()) return null;
+
+    const { snapshot, changed } = await new SnapshotRepo(this.ctx.db).create({
+      connectionId: connId,
+      userId: triggeredBy ?? this.user.id,
+      sessionId: sessionId ?? null,
+      reason,
+      content: res.output,
+    });
+    this.ctx.activity.record({
+      actor: { id: triggeredBy ?? this.user.id, name: this.user.username },
+      action: 'connection.config_snapshot',
+      target: this.target.auditTarget,
+      detail: { reason, changed, lines: snapshot.lines },
+    });
+    return { changed, lines: snapshot.lines };
   }
 }
 
@@ -680,6 +738,7 @@ class ClientConn {
           privateKey: resolved.privateKey,
           passphrase: resolved.passphrase,
           jumps,
+          configCommand: conn.configCommand ?? undefined,
           auditTarget: `${username}@${conn.host}:${conn.port}`,
         };
       } else if (msg.adhoc) {

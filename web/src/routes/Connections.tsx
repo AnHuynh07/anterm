@@ -10,6 +10,7 @@ import { QuickConnect } from '../components/QuickConnect';
 import { ImportExport } from '../components/ImportExport';
 import { ShareDialog } from '../components/ShareDialog';
 import { BulkRunDialog } from '../components/BulkRunDialog';
+import { ConfigHistory } from '../components/ConfigHistory';
 import { Badge, type BadgeTone } from '../components/Badge';
 import { COLOR_HEX } from '../components/colors';
 
@@ -24,6 +25,7 @@ export function ConnectionsPage() {
   const { openTab } = useTerminalTabs();
   const [editing, setEditing] = useState<Connection | 'new' | null>(null);
   const [sharing, setSharing] = useState<Connection | null>(null);
+  const [configFor, setConfigFor] = useState<Connection | null>(null);
   const [testResult, setTestResult] = useState<Record<string, TestState>>({});
   const [query, setQuery] = useState('');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -293,6 +295,11 @@ export function ConnectionsPage() {
                           Test
                         </button>
                       )}
+                      {c.canOpen !== false && (
+                        <button className="btn ghost sm" title="Config snapshots &amp; diff" onClick={() => setConfigFor(c)}>
+                          Config
+                        </button>
+                      )}
                       {c.canEdit !== false && (
                         <button className="btn ghost sm" onClick={() => setEditing(c)}>
                           Edit
@@ -326,6 +333,7 @@ export function ConnectionsPage() {
       ))}
 
       {sharing && <ShareDialog connection={sharing} onClose={() => setSharing(null)} />}
+      {configFor && <ConfigHistory connection={configFor} onClose={() => setConfigFor(null)} />}
       {bulkRun && selectedConns.length > 0 && (
         <BulkRunDialog connections={selectedConns} onClose={() => setBulkRun(false)} />
       )}
@@ -354,6 +362,7 @@ function toBody(value: ConnectionFormValue) {
     sshUsername: value.sshUsername.trim(),
     credentialId: value.credentialId || null,
     jumpConnectionId: value.jumpConnectionId || null,
+    configCommand: value.configCommand.trim() || null,
     authType: value.authType as AuthType,
     initCommand: value.initCommand.trim() || null,
     loginUsername: value.loginUsername.trim() || null,

@@ -20,6 +20,7 @@ export interface ConnectionInput {
   secret?: string | null;
   passphrase?: string | null;
   initCommand?: string | null;
+  configCommand?: string | null;
   // in-band login automation (network devices)
   loginUsername?: string | null;
   loginPassword?: string | null;
@@ -67,6 +68,7 @@ export interface ConnectionDto {
   hasSecret: boolean;
   hasPassphrase: boolean;
   initCommand: string | null;
+  configCommand: string | null;
   loginUsername: string | null;
   hasLoginPassword: boolean;
   hasEnablePassword: boolean;
@@ -100,6 +102,7 @@ export function toDto(c: Connection): ConnectionDto {
     hasSecret: Boolean(c.secretEnc),
     hasPassphrase: Boolean(c.passphraseEnc),
     initCommand: c.initCommand ?? null,
+    configCommand: c.configCommand ?? null,
     loginUsername: c.loginUsername ?? null,
     hasLoginPassword: Boolean(c.loginPasswordEnc),
     hasEnablePassword: Boolean(c.enablePasswordEnc),
@@ -188,6 +191,7 @@ export class ConnectionRepo {
       secretEnc: this.enc(input.secret),
       passphraseEnc: this.enc(input.passphrase),
       initCommand: input.initCommand ?? null,
+      configCommand: input.configCommand?.trim() || null,
       loginUsername: input.loginUsername || null,
       loginPasswordEnc: this.enc(input.loginPassword),
       enablePasswordEnc: this.enc(input.enablePassword),
@@ -220,6 +224,7 @@ export class ConnectionRepo {
       jumpConnectionId: input.jumpConnectionId || null,
       authType: input.authType,
       initCommand: input.initCommand ?? null,
+      configCommand: input.configCommand?.trim() || null,
       loginUsername: input.loginUsername || null,
       setupCommands: input.setupCommands || null,
       groupName: input.groupName?.trim() || null,

@@ -11,6 +11,8 @@ import { connAccess, type Actor } from '../../access.js';
 import { parseImport, toConnectionInput, toCsv, toPortable } from '../../connections/portable.js';
 import { SshSession } from '../../ssh/client.js';
 import { runCommand, runFanout } from '../../ssh/runner.js';
+import { SnapshotRepo, toSnapshotDto } from '../../config/snapshots.js';
+import { configDiff, diffStats } from '../../config/diff.js';
 import { auditActor, requireAuth, requireWriter } from '../app.js';
 
 const upsertBody = z.object({
@@ -24,6 +26,7 @@ const upsertBody = z.object({
   secret: z.string().max(32_768).nullish(),
   passphrase: z.string().max(4096).nullish(),
   initCommand: z.string().max(2000).nullish(),
+  configCommand: z.string().max(2000).nullish(),
   loginUsername: z.string().max(128).nullish(),
   loginPassword: z.string().max(4096).nullish(),
   enablePassword: z.string().max(4096).nullish(),
@@ -56,6 +59,7 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
   const creds = new CredentialRepo(ctx.db, ctx.config.appSecret);
   const shares = new ShareRepo(ctx.db);
   const audit = new AuditLog(ctx.db);
+  const snaps = new SnapshotRepo(ctx.db);
 
   const usernamesByIds = async (ids: string[]): Promise<Map<string, string>> => {
     const uniq = [...new Set(ids)];
@@ -412,6 +416,99 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     // keep the response order stable = request order
     const byId = new Map(results.map((r) => [r.connectionId, r]));
     return { results: parsed.data.connectionIds.map((id) => byId.get(id)).filter(Boolean) };
+  });
+
+  // ---- config snapshots + diff ----
+  app.post('/connections/:id/config-snapshot', async (req, reply) => {
+    const user = requireWriter(req, reply);
+    if (!user) return;
+    const { id } = req.params as { id: string };
+    const loaded = await loadForActor(user, id);
+    if (!loaded) return reply.code(404).send({ error: 'connection not found' });
+    if (!loaded.access.canOpen) return reply.code(403).send({ error: 'you do not have access to this connection' });
+    const conn = loaded.conn;
+    if (conn.jumpConnectionId) return reply.code(400).send({ error: 'config snapshots via a jump host are not supported yet' });
+
+    const known = await ctx.db.query.hostKeys.findFirst({
+      where: eq(hostKeys.hostport, `${conn.host.toLowerCase()}:${conn.port}`),
+    });
+    if (!known) return reply.code(400).send({ error: 'host key not trusted yet — open this device once first' });
+
+    const cred = conn.credentialId ? await creds.get(conn.userId, conn.credentialId) : undefined;
+    const resolved = resolveTarget(conn, cred ?? null, ctx.config.appSecret);
+    const username = conn.sshUsername || resolved.credSshUsername || '';
+    const res = await runCommand({
+      host: conn.host,
+      port: conn.port,
+      username,
+      password: resolved.password,
+      privateKey: resolved.privateKey,
+      passphrase: resolved.passphrase,
+      autoLogin: resolved.autoLogin,
+      command: conn.configCommand || 'show running-config',
+      idleMs: 2800,
+      maxMs: 45_000,
+      verifyHostKey: async (info) => info.fingerprint === known.fingerprintSha256,
+    });
+    if (!res.ok || !res.output.trim()) {
+      return reply.code(502).send({ error: res.error ?? 'the device returned no config output' });
+    }
+    const { snapshot, changed } = await snaps.create({
+      connectionId: conn.id,
+      userId: user.id,
+      reason: 'manual',
+      content: res.output,
+    });
+    ctx.activity.record({
+      actor: auditActor(req),
+      action: 'connection.config_snapshot',
+      target: conn.name,
+      detail: { reason: 'manual', changed, lines: snapshot.lines },
+    });
+    return { id: snapshot.id, capturedAt: snapshot.capturedAt, lines: snapshot.lines, changed };
+  });
+
+  app.get('/connections/:id/config-snapshots', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const { id } = req.params as { id: string };
+    const loaded = await loadForActor(user, id);
+    if (!loaded) return reply.code(404).send({ error: 'connection not found' });
+    const rows = await snaps.list(id, 200);
+    const names = await usernamesByIds(rows.map((r) => r.userId).filter((u): u is string => Boolean(u)));
+    return {
+      snapshots: rows.map((s) => ({ ...toSnapshotDto(s), user: s.userId ? (names.get(s.userId) ?? null) : null })),
+      configCommand: loaded.conn.configCommand || 'show running-config',
+    };
+  });
+
+  app.get('/connections/:id/config-snapshots/:snapId', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const { id, snapId } = req.params as { id: string; snapId: string };
+    if (!(await loadForActor(user, id))) return reply.code(404).send({ error: 'connection not found' });
+    const s = await snaps.get(id, snapId);
+    if (!s) return reply.code(404).send({ error: 'snapshot not found' });
+    return { id: s.id, capturedAt: s.capturedAt, lines: s.lines, content: s.content };
+  });
+
+  app.get('/connections/:id/config-diff', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const { id } = req.params as { id: string };
+    if (!(await loadForActor(user, id))) return reply.code(404).send({ error: 'connection not found' });
+    const q = req.query as { a?: string; b?: string };
+    if (!q.b) return reply.code(400).send({ error: 'b (newer snapshot id) is required' });
+    const b = await snaps.get(id, q.b);
+    if (!b) return reply.code(404).send({ error: 'snapshot not found' });
+    const a = q.a ? await snaps.get(id, q.a) : await snaps.previous(id, b.capturedAt);
+    const lines = configDiff(a?.content ?? '', b.content);
+    return {
+      lines,
+      ...diffStats(lines),
+      a: a ? { id: a.id, capturedAt: a.capturedAt } : null,
+      b: { id: b.id, capturedAt: b.capturedAt },
+    };
   });
 
   // Fire a throwaway SSH connection and report whether auth + host key check pass.

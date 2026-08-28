@@ -70,6 +70,7 @@ export interface Connection {
   hasSecret: boolean;
   hasPassphrase: boolean;
   initCommand: string | null;
+  configCommand: string | null;
   loginUsername: string | null;
   hasLoginPassword: boolean;
   hasEnablePassword: boolean;
@@ -94,6 +95,20 @@ export interface Snippet {
   name: string;
   command: string;
   sortOrder: number;
+}
+
+export interface ConfigSnapshot {
+  id: string;
+  capturedAt: number;
+  reason: string;
+  lines: number;
+  changed: boolean;
+  user: string | null;
+}
+
+export interface DiffLine {
+  type: ' ' | '-' | '+' | '@';
+  text: string;
 }
 
 export interface ReachResult {

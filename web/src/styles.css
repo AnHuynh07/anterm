@@ -635,6 +635,38 @@ code {
   flex: none;
 }
 
+/* config diff */
+.config-diff {
+  background: var(--term-bg);
+  border-radius: var(--radius-sm);
+  padding: 10px 0;
+  margin: 0;
+  max-height: 55vh;
+  overflow: auto;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.config-diff .dl {
+  padding: 0 12px;
+  white-space: pre;
+  color: #cbd5e1;
+}
+.config-diff .dl-add {
+  background: rgba(22, 163, 74, 0.22);
+  color: #86efac;
+}
+.config-diff .dl-del {
+  background: rgba(220, 38, 38, 0.22);
+  color: #fca5a5;
+}
+.config-diff .dl-gap {
+  color: #64748b;
+  background: rgba(148, 163, 184, 0.08);
+  text-align: center;
+  font-style: italic;
+}
+
 /* dashboard */
 .stat-row {
   display: flex;

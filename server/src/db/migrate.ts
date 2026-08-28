@@ -186,6 +186,24 @@ const migrations: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS connections_jump_idx ON connections (jump_connection_id);
     `,
   },
+  {
+    id: '0009_config_snapshots',
+    sql: /* sql */ `
+      ALTER TABLE connections ADD COLUMN config_command TEXT;
+      CREATE TABLE IF NOT EXISTS config_snapshots (
+        id TEXT PRIMARY KEY,
+        connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+        user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        session_id TEXT REFERENCES ssh_sessions(id) ON DELETE SET NULL,
+        captured_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        reason TEXT NOT NULL DEFAULT 'manual',
+        lines INTEGER NOT NULL DEFAULT 0,
+        changed INTEGER NOT NULL DEFAULT 1,
+        content TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS config_snapshots_conn_idx ON config_snapshots (connection_id, captured_at);
+    `,
+  },
 ];
 
 export function runMigrations(raw: Database.Database): void {

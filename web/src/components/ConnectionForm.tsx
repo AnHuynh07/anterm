@@ -13,6 +13,7 @@ export interface ConnectionFormValue {
   secret: string;
   passphrase: string;
   initCommand: string;
+  configCommand: string;
   // login automation
   loginUsername: string;
   loginPassword: string;
@@ -55,6 +56,7 @@ export function ConnectionForm({
     credentialId: initial?.credentialId ?? '',
     jumpConnectionId: initial?.jumpConnectionId ?? '',
     authType: initial?.authType ?? 'password',
+    configCommand: initial?.configCommand ?? '',
     secret: '',
     passphrase: '',
     initCommand: initial?.initCommand ?? '',
@@ -308,6 +310,14 @@ export function ConnectionForm({
             <label>
               Run a single command (exec mode) <span className="muted small">— instead of an interactive shell</span>
               <input value={v.initCommand} onChange={(e) => set('initCommand', e.target.value)} placeholder="e.g. show tech-support" />
+            </label>
+            <label>
+              Config snapshot command <span className="muted small">— what “Config history” dumps &amp; diffs</span>
+              <input
+                value={v.configCommand}
+                onChange={(e) => set('configCommand', e.target.value)}
+                placeholder="show running-config"
+              />
             </label>
             <label>
               Anti-idle keepalive <span className="muted small">— send a null byte every N seconds of silence (0 = off)</span>

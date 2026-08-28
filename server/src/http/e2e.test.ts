@@ -189,6 +189,58 @@ describe('terminal websocket e2e', () => {
     expect(body.results[0]?.error).toMatch(/host key not trusted/i);
   });
 
+  it('captures config snapshots and diffs them', { timeout: 30_000 }, async () => {
+    const put = (cmd: string) =>
+      fetch(`http://${baseUrl}/api/connections/${connectionId}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrf },
+        body: JSON.stringify({
+          name: 'fixture',
+          host: fx.host,
+          port: fx.port,
+          sshUsername: fx.username,
+          authType: 'password',
+          configCommand: cmd,
+        }),
+      });
+    const snap = async () => {
+      const r = await fetch(`http://${baseUrl}/api/connections/${connectionId}/config-snapshot`, {
+        method: 'POST',
+        headers: { cookie, 'x-csrf-token': csrf },
+      });
+      const body = await r.json();
+      if (r.status !== 200) throw new Error(`snapshot ${r.status}: ${JSON.stringify(body)}`);
+      return body as { id: string; lines: number; changed: boolean };
+    };
+
+    await put('echo alpha; echo beta; echo gamma');
+    const first = await snap();
+    const rawFirst = await (
+      await fetch(`http://${baseUrl}/api/connections/${connectionId}/config-snapshots/${first.id}`, { headers: { cookie } })
+    ).json();
+    expect(rawFirst.content, `captured: ${JSON.stringify(rawFirst.content)}`).toContain('alpha');
+    expect(rawFirst.content).toContain('beta');
+    expect(rawFirst.content).toContain('gamma');
+    expect(first.changed).toBe(true);
+
+    await put('echo alpha; echo BETA-changed; echo gamma');
+    const second = await snap();
+    expect(second.changed).toBe(true);
+
+    const list = await (
+      await fetch(`http://${baseUrl}/api/connections/${connectionId}/config-snapshots`, { headers: { cookie } })
+    ).json();
+    expect(list.snapshots).toHaveLength(2);
+
+    const diff = await (
+      await fetch(`http://${baseUrl}/api/connections/${connectionId}/config-diff?b=${second.id}`, { headers: { cookie } })
+    ).json();
+    expect(diff.added).toBe(1);
+    expect(diff.removed).toBe(1);
+    expect(diff.lines.some((l: { type: string; text: string }) => l.type === '-' && l.text === 'beta')).toBe(true);
+    expect(diff.lines.some((l: { type: string; text: string }) => l.type === '+' && l.text === 'BETA-changed')).toBe(true);
+  });
+
   it('enforces CSRF on connection mutations', async () => {
     const res = await fetch(`http://${baseUrl}/api/connections`, {
       method: 'POST',

@@ -87,6 +87,7 @@ export const connections = sqliteTable(
     secretEnc: text('secret_enc'),
     passphraseEnc: text('passphrase_enc'),
     initCommand: text('init_command'),
+    configCommand: text('config_command'), // for config snapshots; default 'show running-config'
     // --- in-band login automation (network devices with AAA login prompts) ---
     loginUsername: text('login_username'),
     loginPasswordEnc: text('login_password_enc'),
@@ -181,6 +182,25 @@ export const snippets = sqliteTable(
   (t) => ({ userIdx: index('snippets_user_idx').on(t.userId) }),
 );
 
+/** Point-in-time capture of a device's running config, for change tracking + diff. */
+export const configSnapshots = sqliteTable(
+  'config_snapshots',
+  {
+    id: text('id').primaryKey(),
+    connectionId: text('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+    sessionId: text('session_id').references(() => sshSessions.id, { onDelete: 'set null' }),
+    capturedAt: integer('captured_at').notNull().default(now),
+    reason: text('reason').notNull().default('manual'), // 'manual' | 'auto-after-save' | 'auto'
+    lines: integer('lines').notNull().default(0),
+    changed: integer('changed', { mode: 'boolean' }).notNull().default(true),
+    content: text('content').notNull(),
+  },
+  (t) => ({ connIdx: index('config_snapshots_conn_idx').on(t.connectionId, t.capturedAt) }),
+);
+
 /** Grant another user access to a connection they don't own. */
 export const connectionShares = sqliteTable(
   'connection_shares',
@@ -230,3 +250,4 @@ export type Command = typeof commands.$inferSelect;
 export type Snippet = typeof snippets.$inferSelect;
 export type ConnectionShare = typeof connectionShares.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
+export type ConfigSnapshot = typeof configSnapshots.$inferSelect;
