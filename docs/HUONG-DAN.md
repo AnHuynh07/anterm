@@ -231,6 +231,9 @@ DB trước khi update** bản lớn.
 |---|---|
 | `npm install` lỗi native build | Xoá `node_modules`, `npm install` lại. |
 | `gyp ERR! find VS` / `Could not find any Visual Studio` (Windows) | Node đang ở bản **lẻ** không có prebuild → cài **Node LTS 22** (qua `nvm-windows`) rồi thử lại, **hoặc** cài build tools: `winget install Microsoft.VisualStudio.2022.BuildTools` + workload "Desktop development with C++" (script: cờ `-BuildTools`). |
+| `npm ... cannot be loaded because running scripts is disabled` (Windows PowerShell) | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force` một lần, **hoặc** dùng `cmd.exe` (npm.cmd không bị chặn). |
+| Chạy `node server/dist/index.js`, không lỗi nhưng "server chưa lên" | Bản build cũ không tự đọc `.env` → chạy `node --env-file=.env server/dist/index.js`. Đã sửa: `git pull` + `npm run build` để `node server/dist/index.js` tự nạp `.env`. |
+| Không vào được từ máy khác | Windows Firewall chặn — `netsh advfirewall firewall add rule name="AnTerm" dir=in action=allow protocol=TCP localport=3000` (cmd quyền admin). |
 | Khởi động báo thiếu `ANTERM_APP_SECRET` | Đặt trong `.env` (≥ 16 ký tự) hoặc truyền `--app-secret`. |
 | Không đăng nhập được, log ghi "No users exist" | Đặt `ADMIN_USER` / `ADMIN_PASSWORD` rồi khởi động lại (chỉ tạo khi DB rỗng). |
 | Mở kết nối bị hỏi host key mãi | Bấm **Trust and continue** một lần; nếu key đổi thật sẽ có cảnh báo đỏ. |

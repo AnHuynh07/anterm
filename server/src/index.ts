@@ -1,8 +1,25 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pino } from 'pino';
 import { loadConfig } from './config.js';
+
+// Load a .env from cwd, or one dir up (repo root when run as
+// `node server/dist/index.js`), so `npm start` / start-anterm.bat work without
+// an explicit --env-file. Values already in the environment take precedence.
+const loadEnvFile = (process as NodeJS.Process & { loadEnvFile?: (p: string) => void }).loadEnvFile;
+if (typeof loadEnvFile === 'function') {
+  for (const p of [resolve(process.cwd(), '.env'), resolve(process.cwd(), '..', '.env')]) {
+    if (existsSync(p)) {
+      try {
+        loadEnvFile(p);
+      } catch {
+        /* unreadable / malformed — fall through to real env vars */
+      }
+      break;
+    }
+  }
+}
 import type { AppContext } from './context.js';
 import { createDb } from './db/client.js';
 import { runMigrations } from './db/migrate.js';

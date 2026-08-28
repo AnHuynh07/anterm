@@ -81,6 +81,17 @@ Write-Host "  AnTerm - Windows installer" -ForegroundColor White
 Write-Host "  =========================" -ForegroundColor White
 Write-Host ""
 
+# --- 0. Let PowerShell run npm.ps1 for THIS user (so later manual `npm ...` works) ---
+try {
+  $cur = Get-ExecutionPolicy -Scope CurrentUser
+  if ($cur -eq 'Restricted' -or $cur -eq 'Undefined') {
+    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
+    Ok "execution policy (CurrentUser) -> RemoteSigned"
+  }
+} catch {
+  Warn "could not set execution policy (Group Policy?) - use cmd.exe for manual npm commands"
+}
+
 # --- 1. Git ---
 if (-not (Have 'git')) { Winget-Install 'Git.Git' 'Git' }
 if (-not (Have 'git')) { Die "Git still not on PATH. Reopen PowerShell and re-run this script." }
@@ -161,6 +172,19 @@ try {
     Die   "See the log path printed above for details."
   }
   Ok "dependencies installed"
+
+  # --- 4b. Make sure the native binary is really there (some setups defer install scripts) ---
+  Info "Checking native modules ..."
+  node -e "new (require('better-sqlite3'))(':memory:')" 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    Info "  building better-sqlite3 ..."
+    npm rebuild better-sqlite3 argon2 ssh2 --foreground-scripts 2>&1 | Out-Host
+    node -e "new (require('better-sqlite3'))(':memory:')" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      Die "better-sqlite3 still won't load. Run with -BuildTools, or use Node 22 LTS (nvm-windows)."
+    }
+  }
+  Ok "native modules OK"
 
   # --- 5. .env ---
   $envPath = Join-Path $Path '.env'
