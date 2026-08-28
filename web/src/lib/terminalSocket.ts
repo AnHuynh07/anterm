@@ -25,6 +25,9 @@ export class TerminalSocket {
   private token: string | null = null;
   private lastSize: { cols: number; rows: number };
   private readonly open: Extract<ClientMessage, { t: 'open' }>;
+  /** we were handed a token up front → re-attaching into a blank terminal */
+  private readonly reattach: boolean;
+  private firstConnect = true;
 
   constructor(
     open: Omit<Extract<ClientMessage, { t: 'open' }>, 't'>,
@@ -34,6 +37,7 @@ export class TerminalSocket {
     this.open = { t: 'open', ...open };
     this.lastSize = { cols: open.cols, rows: open.rows };
     this.token = initialToken ?? null;
+    this.reattach = Boolean(initialToken);
   }
 
   connect(): void {
@@ -45,10 +49,12 @@ export class TerminalSocket {
     ws.onopen = () => {
       this.reconnects = 0;
       if (this.token) {
-        this.send({ t: 'attach', token: this.token, ...this.lastSize });
+        const fresh = this.reattach && this.firstConnect;
+        this.send({ t: 'attach', token: this.token, ...this.lastSize, ...(fresh ? { fresh: true } : {}) });
       } else {
         this.send(this.open);
       }
+      this.firstConnect = false;
     };
     ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {

@@ -17,27 +17,35 @@ import { buildApp } from '../http/app.js';
 import { attachTerminalWs } from './terminal.js';
 import { startSshFixture, type SshFixture } from '../../test/sshFixture.js';
 
-const SECRET = 'resume-secret-resume-secret-resume1';
+const SECRET = 'durable-secret-durable-secret-dur1x';
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let detachWs: () => void;
 let baseUrl: string;
 let fx: SshFixture;
 let cookie: string;
+let cookie2: string;
+let csrf: string;
 let connectionId: string;
 const openSockets: WebSocket[] = [];
 
+async function login(username: string, password: string): Promise<{ cookie: string; csrf: string }> {
+  const res = await fetch(`http://${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const cookie = res.headers
+    .getSetCookie()
+    .map((c) => c.split(';')[0])
+    .join('; ');
+  return { cookie, csrf: (await res.json()).csrf as string };
+}
+
 beforeAll(async () => {
   fx = await startSshFixture();
-  const config = loadConfig([
-    '--app-secret',
-    SECRET,
-    '--db-url',
-    ':memory:',
-    '--no-record',
-    '--resume-grace-sec',
-    '4',
-  ]);
+  // short quick-resume grace; durable window keeps the session for the default 120 min
+  const config = loadConfig(['--app-secret', SECRET, '--db-url', ':memory:', '--no-record', '--resume-grace-sec', '1']);
   const log = pino({ level: 'silent' });
   const dbHandle = createDb(':memory:');
   runMigrations(dbHandle.sqlite);
@@ -54,7 +62,8 @@ beforeAll(async () => {
     alerter: new Alerter(new AppSettingsStore(dbHandle.db), log),
     liveSessions: new LiveRegistry(),
   };
-  const user = await createUser(dbHandle.db, { username: 'r', password: 'r-password' });
+  const user = await createUser(dbHandle.db, { username: 'd', password: 'd-password' });
+  await createUser(dbHandle.db, { username: 'other', password: 'other-password' });
   connectionId = (
     await new ConnectionRepo(dbHandle.db, SECRET).create(user.id, {
       name: 'fx',
@@ -70,15 +79,10 @@ beforeAll(async () => {
   detachWs = attachTerminalWs(app.server, ctx);
   await app.listen({ host: '127.0.0.1', port: 0 });
   baseUrl = `127.0.0.1:${(app.server.address() as { port: number }).port}`;
-  const res = await fetch(`http://${baseUrl}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: 'r', password: 'r-password' }),
-  });
-  cookie = res.headers
-    .getSetCookie()
-    .map((c) => c.split(';')[0])
-    .join('; ');
+  const a = await login('d', 'd-password');
+  cookie = a.cookie;
+  csrf = a.csrf;
+  cookie2 = (await login('other', 'other-password')).cookie;
 });
 
 afterAll(async () => {
@@ -97,20 +101,16 @@ function connect(): Promise<WebSocket> {
   });
 }
 
-describe('resume on reconnect', () => {
-  it('keeps the SSH session alive across a WS drop and replays missed output', { timeout: 25_000 }, async () => {
-    // 1. open, trust host key, wait for ready
+describe('durable sessions', () => {
+  it('survives a full disconnect, is listed for re-attach, and can be stopped', { timeout: 25_000 }, async () => {
+    // open + ready
     const ws1 = await connect();
     let token = '';
-    let out1 = '';
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`no ready; ${out1}`)), 15_000);
+      const timer = setTimeout(() => reject(new Error('no ready')), 15_000);
       ws1.send(JSON.stringify({ t: 'open', connectionId, cols: 80, rows: 24 }));
       ws1.on('message', (d, isBinary) => {
-        if (isBinary) {
-          out1 += d.toString();
-          return;
-        }
+        if (isBinary) return;
         const m = JSON.parse(d.toString());
         if (m.t === 'attached') token = m.token;
         if (m.t === 'hostkey-prompt') ws1.send(JSON.stringify({ t: 'hostkey', accept: true }));
@@ -126,18 +126,33 @@ describe('resume on reconnect', () => {
     });
     expect(token).toBeTruthy();
 
-    // 2. kick off delayed output, then immediately drop the socket
-    ws1.send(Buffer.from('echo MARK-A; sleep 1; echo MARK-DELAYED\n'));
-    await new Promise((r) => setTimeout(r, 120));
-    ws1.terminate(); // hard drop, no clean close
+    ws1.send(Buffer.from('echo PERSISTED\n'));
+    await new Promise((r) => setTimeout(r, 200));
+    ws1.terminate(); // hard drop — no client left
 
-    // 3. reconnect + attach after the delayed echo has fired server-side
-    await new Promise((r) => setTimeout(r, 1500));
+    // wait well past the 1s quick-resume grace
+    await new Promise((r) => setTimeout(r, 2500));
+
+    // still listed as a running session for its owner
+    const listRes = await fetch(`http://${baseUrl}/api/sessions/live`, { headers: { cookie } });
+    const { sessions: live } = (await listRes.json()) as {
+      sessions: { token: string; connectionId: string | null; detachedAt: number | null; attached: number }[];
+    };
+    const mine = live.find((s) => s.token === token);
+    expect(mine, 'session should still be live after the resume grace').toBeTruthy();
+    expect(mine!.connectionId).toBe(connectionId);
+    expect(mine!.detachedAt).not.toBeNull();
+    expect(mine!.attached).toBe(0);
+
+    // another user cannot see it
+    const otherList = await fetch(`http://${baseUrl}/api/sessions/live`, { headers: { cookie: cookie2 } });
+    expect(((await otherList.json()) as { sessions: unknown[] }).sessions).toHaveLength(0);
+
+    // re-attach from a "new device" and confirm the shell is the same one
     const ws2 = await connect();
     let out2 = '';
     let resumed = false;
-    ws2.send(JSON.stringify({ t: 'attach', token, cols: 80, rows: 24 }));
-
+    ws2.send(JSON.stringify({ t: 'attach', token, cols: 80, rows: 24, fresh: true }));
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`resume timeout; got: ${out2}`)), 10_000);
       ws2.on('message', (d, isBinary) => {
@@ -149,34 +164,37 @@ describe('resume on reconnect', () => {
         if (m.t === 'attached' && m.resumed) resumed = true;
         if (m.t === 'status' && m.state === 'closed') {
           clearTimeout(timer);
-          reject(new Error('session was not kept alive: ' + m.detail));
+          reject(new Error('durable session was closed: ' + m.detail));
         }
       });
-      // give it a moment to replay + confirm the shell still responds
       setTimeout(() => {
-        ws2.send(Buffer.from('echo MARK-B\n'));
+        ws2.send(Buffer.from('echo BACK\n'));
         setTimeout(() => {
           clearTimeout(timer);
           resolve();
         }, 800);
       }, 400);
     });
-
     expect(resumed).toBe(true);
-    expect(out2).toContain('MARK-DELAYED'); // produced while disconnected, replayed on attach
-    expect(out2).toContain('MARK-B'); // same shell still alive and responding
-  });
+    expect(out2).toContain('PERSISTED'); // replayed from the ring
+    expect(out2).toContain('BACK'); // same shell still alive
 
-  it('refuses to attach to an unknown / other-user token', { timeout: 15_000 }, async () => {
-    const ws = await connect();
-    const closed = await new Promise<string>((resolve) => {
-      ws.on('message', (d, isBinary) => {
-        if (isBinary) return;
-        const m = JSON.parse(d.toString());
-        if (m.t === 'status' && m.state === 'closed') resolve(m.detail ?? '');
-      });
-      ws.send(JSON.stringify({ t: 'attach', token: 'totally-bogus-token', cols: 80, rows: 24 }));
+    // a stranger cannot stop it (their csrf is fine; ownership check fails)
+    const other2 = await login('other', 'other-password');
+    const badStop = await fetch(`http://${baseUrl}/api/sessions/live/${token}/stop`, {
+      method: 'POST',
+      headers: { cookie: other2.cookie, 'x-csrf-token': other2.csrf },
     });
-    expect(closed).toMatch(/no longer available/);
+    expect(badStop.status).toBe(404);
+
+    // the owner can
+    const stop = await fetch(`http://${baseUrl}/api/sessions/live/${token}/stop`, {
+      method: 'POST',
+      headers: { cookie, 'x-csrf-token': csrf },
+    });
+    expect(stop.status).toBe(200);
+
+    const after = await fetch(`http://${baseUrl}/api/sessions/live`, { headers: { cookie } });
+    expect(((await after.json()) as { sessions: unknown[] }).sessions).toHaveLength(0);
   });
 });

@@ -27,6 +27,7 @@ export type AuditAction =
   | 'hostkey.trusted'
   | 'hostkey.changed_accepted'
   | 'session.recordings_pruned'
+  | 'session.terminated'
   | 'vault.export'
   | 'vault.import'
   | 'vault.db_backup'

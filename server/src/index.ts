@@ -14,7 +14,7 @@ import { AppSettingsStore } from './settings.js';
 import { Alerter } from './alerts.js';
 import { ReachabilityMonitor } from './health/monitor.js';
 import { buildApp } from './http/app.js';
-import { attachTerminalWs } from './ws/terminal.js';
+import { attachTerminalWs, LiveRegistry } from './ws/terminal.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -40,7 +40,19 @@ async function main(): Promise<void> {
   reachability.start();
 
   const activity = new ActivityLog(dbHandle.db, log);
-  const ctx: AppContext = { config, log, db: dbHandle.db, dbHandle, sessions, reachability, activity, settings, alerter };
+  const liveSessions = new LiveRegistry();
+  const ctx: AppContext = {
+    config,
+    log,
+    db: dbHandle.db,
+    dbHandle,
+    sessions,
+    reachability,
+    activity,
+    settings,
+    alerter,
+    liveSessions,
+  };
 
   const app = await buildApp(ctx);
   const detachWs = attachTerminalWs(app.server, ctx);

@@ -6,6 +6,7 @@ import type { ReachabilityMonitor } from './health/monitor.js';
 import type { ActivityLog } from './activity.js';
 import type { AppSettingsStore } from './settings.js';
 import type { Alerter } from './alerts.js';
+import type { LiveRegistry } from './ws/terminal.js';
 
 export interface AppContext {
   config: AppConfig;
@@ -17,4 +18,6 @@ export interface AppContext {
   activity: ActivityLog;
   settings: AppSettingsStore;
   alerter: Alerter;
+  /** process-wide table of running terminal sessions (for re-attach) */
+  liveSessions: LiveRegistry;
 }

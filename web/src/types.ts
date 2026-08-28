@@ -145,6 +145,17 @@ export interface CommandRecord {
   sessionId?: string;
 }
 
+export interface LiveSession {
+  token: string;
+  connectionId: string | null;
+  target: string;
+  startedAt: number;
+  detachedAt: number | null;
+  attached: number;
+  observers: number;
+  shared: boolean;
+}
+
 export interface SshSessionRecord {
   id: string;
   connectionId: string | null;
@@ -181,7 +192,7 @@ export type ServerMessage =
 
 export type ClientMessage =
   | { t: 'open'; connectionId?: string; adhoc?: AdhocTarget; cols: number; rows: number }
-  | { t: 'attach'; token: string; cols: number; rows: number }
+  | { t: 'attach'; token: string; cols: number; rows: number; fresh?: boolean }
   | { t: 'resize'; cols: number; rows: number }
   | { t: 'hostkey'; accept: boolean }
   | { t: 'share'; enabled: boolean }

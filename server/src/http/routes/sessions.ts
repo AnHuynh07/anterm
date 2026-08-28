@@ -4,7 +4,7 @@ import { inArray } from 'drizzle-orm';
 import type { AppContext } from '../../context.js';
 import { AuditLog } from '../../audit.js';
 import { users } from '../../db/schema.js';
-import { requireAuth } from '../app.js';
+import { auditActor, requireAuth } from '../app.js';
 import type { AnyFastify } from '../types.js';
 
 // eslint-disable-next-line no-control-regex
@@ -45,6 +45,22 @@ export function registerSessionRoutes(app: AnyFastify, ctx: AppContext): void {
         commandCount: r.commandCount,
       })),
     };
+  });
+
+  // sessions still running in this process, for re-attach from another device
+  app.get('/sessions/live', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    return { sessions: ctx.liveSessions.forUser(user.id) };
+  });
+
+  app.post('/sessions/live/:token/stop', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const ok = ctx.liveSessions.stopFor(user.id, (req.params as { token: string }).token);
+    if (!ok) return reply.code(404).send({ error: 'no such running session' });
+    ctx.activity.record({ actor: auditActor(req), action: 'session.terminated' });
+    return { ok: true };
   });
 
   app.get('/sessions/:id/recording', async (req, reply) => {

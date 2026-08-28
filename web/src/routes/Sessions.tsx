@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { CommandRecord, SshSessionRecord } from '../types';
+import type { CommandRecord, Connection, LiveSession, SshSessionRecord } from '../types';
 import { useAuth } from '../hooks/useAuth';
+import { useTerminalTabs } from '../hooks/useTerminalTabs';
 import { Badge, statusTone } from '../components/Badge';
 import { SessionReplay } from '../components/SessionReplay';
 
@@ -10,6 +12,82 @@ const fmt = (secs: number | null) => (secs ? new Date(secs * 1000).toLocaleStrin
 const dur = (r: SshSessionRecord) => (r.endedAt ? `${Math.max(1, r.endedAt - r.startedAt)}s` : 'active');
 const bytes = (n: number) =>
   n < 1024 ? `${n} B` : n < 1_048_576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1_048_576).toFixed(1)} MB`;
+
+function ago(secs: number): string {
+  const s = Math.max(0, Math.floor(Date.now() / 1000) - secs);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function RunningSessions() {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { openTab } = useTerminalTabs();
+  const { data } = useQuery({
+    queryKey: ['sessions-live'],
+    queryFn: () => api<{ sessions: LiveSession[] }>('/sessions/live'),
+    refetchInterval: 10_000,
+  });
+  const { data: connData } = useQuery({
+    queryKey: ['connections'],
+    queryFn: () => api<{ connections: Connection[] }>('/connections'),
+  });
+  const stop = useMutation({
+    mutationFn: (token: string) => api(`/sessions/live/${token}/stop`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sessions-live'] }),
+  });
+
+  const rows = data?.sessions ?? [];
+  if (rows.length === 0) return null;
+
+  const nameFor = (s: LiveSession) =>
+    connData?.connections.find((c) => c.id === s.connectionId)?.name ?? s.target;
+
+  function reattach(s: LiveSession) {
+    openTab({ connectionId: s.connectionId ?? undefined, title: nameFor(s), resumeToken: s.token });
+    navigate('/terminal');
+  }
+
+  return (
+    <div className="card">
+      <h2>Running sessions</h2>
+      <p className="muted small">
+        Sessions still alive on the server — attached elsewhere or waiting to be picked back up. Re-attach from here on any
+        device.
+      </p>
+      <table className="table">
+        <tbody>
+          {rows.map((s) => (
+            <tr key={s.token}>
+              <td>
+                <Badge tone={s.attached > 0 ? 'up' : 'info'} dot>
+                  {s.attached > 0 ? `attached${s.attached > 1 ? ` ×${s.attached}` : ''}` : 'detached'}
+                </Badge>
+              </td>
+              <td style={{ fontWeight: 600 }}>{nameFor(s)}</td>
+              <td className="mono small muted">{s.target}</td>
+              <td className="small muted">
+                started {ago(s.startedAt)}
+                {s.detachedAt ? ` · left ${ago(s.detachedAt)}` : ''}
+                {s.observers > 0 ? ` · 👁 ${s.observers}` : ''}
+              </td>
+              <td className="actions">
+                <button className="btn primary sm" onClick={() => reattach(s)}>
+                  Re-attach
+                </button>
+                <button className="btn danger sm" disabled={stop.isPending} onClick={() => stop.mutate(s.token)}>
+                  Stop
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function SessionsPage() {
   const { isAdmin } = useAuth();
@@ -36,6 +114,8 @@ export function SessionsPage() {
         </button>
       </div>
       {isAdmin && <p className="muted small">Showing sessions for every user.</p>}
+
+      <RunningSessions />
 
       {showCmds && (
         <div className="card">

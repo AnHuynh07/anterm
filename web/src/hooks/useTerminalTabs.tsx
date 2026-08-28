@@ -18,7 +18,8 @@ interface TabSink {
 interface TabsState {
   tabs: TermTab[];
   activeKey: string | null;
-  openTab: (tab: Omit<TermTab, 'key'>) => string;
+  /** `resumeToken` re-attaches to an already-running server session */
+  openTab: (tab: Omit<TermTab, 'key'> & { resumeToken?: string }) => string;
   closeTab: (key: string) => void;
   setActive: (key: string) => void;
   /** per-tab server resume token, persisted so a remount can re-attach */
@@ -43,7 +44,9 @@ export function TerminalTabsProvider({ children }: { children: ReactNode }) {
 
   const openTab = useCallback<TabsState['openTab']>((tab) => {
     const key = `t${++counter}`;
-    setTabs((prev) => [...prev, { ...tab, key }]);
+    const { resumeToken, ...rest } = tab;
+    if (resumeToken) tokens.current.set(key, resumeToken);
+    setTabs((prev) => [...prev, { ...rest, key }]);
     setActiveKey(key);
     return key;
   }, []);

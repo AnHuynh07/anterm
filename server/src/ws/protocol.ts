@@ -29,6 +29,9 @@ export const clientMessage = z.discriminatedUnion('t', [
     token: z.string().min(8).max(128),
     cols: z.number().int().positive().max(1000).default(80),
     rows: z.number().int().positive().max(1000).default(24),
+    /** re-attaching into a blank terminal (e.g. from another device) — replay the
+     *  whole scrollback ring, not just what was produced while detached */
+    fresh: z.boolean().optional(),
   }),
   z.object({ t: z.literal('resize'), cols: z.number().int().positive().max(1000), rows: z.number().int().positive().max(1000) }),
   z.object({ t: z.literal('hostkey'), accept: z.boolean() }),

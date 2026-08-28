@@ -45,6 +45,8 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 - **Config-change capture & diff** — snapshot a device's running config on demand or
   automatically after a `write mem`; browse the timeline and diff any two versions
 - **Session sharing** — hand a colleague a link to watch your live terminal read-only
+- **Split / grid view** — watch 2–4 sessions side by side; every tab stays connected so
+  Broadcast still types to all of them at once
 - **Per-device runbook** — markdown notes (console location, reboot time, gotchas, links)
   rendered in a panel beside the live terminal
 - **Colour labels** — mark a connection red/"production"; its tab and a banner above the
@@ -58,6 +60,9 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
   `anterm` object; configured in Settings, admin-only, with a "send test" button
 - **Resume on reconnect** — a dropped WebSocket re-attaches to the still-running SSH session
   and replays whatever output was missed (grace window, default 90 s)
+- **Durable sessions** — an SSH session keeps running server-side after you close the browser
+  entirely (`--durable-session-min`, default 120); a "Running sessions" list on the History
+  page lets you re-attach it from any device, with the scrollback replayed, or stop it
 - **Broadcast** — type once, send to every open terminal tab (with a loud banner)
 - **Host key verification** — trust-on-first-use prompt in the UI; stored and checked on
   every later connection; loud warning if a key changes
@@ -134,6 +139,7 @@ for the full list. Common options:
 | `--ssh-idle-timeout-min` | `ANTERM_SSH_IDLE_TIMEOUT_MIN` | `0` (off) | Close idle SSH sessions |
 | `--ssh-max-duration-min` | `ANTERM_SSH_MAX_DURATION_MIN` | `0` (off) | Hard cap on session length |
 | `--resume-grace-sec` | `ANTERM_RESUME_GRACE_SEC` | `90` | Keep SSH alive N s after a WS drop for resume (0 = off) |
+| `--durable-session-min` | `ANTERM_DURABLE_SESSION_MIN` | `120` | Keep a fully-detached SSH session alive N min for re-attach from any device (0 = off) |
 | `--session-ttl-hours` | `ANTERM_SESSION_TTL_HOURS` | `12` | Login session lifetime |
 | `--allow-iframe` | `ANTERM_ALLOW_IFRAME` | `false` | Allow embedding in an iframe |
 | `--allow-secret-export` | `ANTERM_ALLOW_SECRET_EXPORT` | `true` | Let admins export the vault with decrypted secrets + a DB backup |

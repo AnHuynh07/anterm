@@ -80,6 +80,54 @@ interface Target {
   configCommand?: string;
 }
 
+/** A running SSH/local session, as shown in the "Running sessions" list. */
+export interface LiveSessionSummary {
+  token: string;
+  connectionId: string | null;
+  target: string;
+  startedAt: number;
+  /** epoch ms since the last client left, or null while someone is attached */
+  detachedAt: number | null;
+  /** owner-side clients currently attached */
+  attached: number;
+  observers: number;
+  shared: boolean;
+}
+
+/**
+ * Process-wide table of live sessions. Kept on the AppContext so HTTP routes can
+ * list a user's running sessions and let them re-attach from another device.
+ */
+export class LiveRegistry {
+  private map = new Map<string, LiveSession>();
+
+  set(token: string, s: LiveSession): void {
+    this.map.set(token, s);
+  }
+  delete(token: string): void {
+    this.map.delete(token);
+  }
+  get(token: string): LiveSession | undefined {
+    return this.map.get(token);
+  }
+  forUser(userId: string): LiveSessionSummary[] {
+    return [...this.map.values()]
+      .filter((s) => s.userId === userId && !s.isClosed)
+      .map((s) => s.summary())
+      .sort((a, b) => b.startedAt - a.startedAt);
+  }
+  /** Close one of `userId`'s sessions by token. Returns false if not theirs. */
+  stopFor(userId: string, token: string): boolean {
+    const s = this.map.get(token);
+    if (!s || s.userId !== userId || s.isClosed) return false;
+    s.close('closed from session list');
+    return true;
+  }
+  closeAll(reason: string): void {
+    for (const s of [...this.map.values()]) s.close(reason);
+  }
+}
+
 export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => void {
   const { config, log } = ctx;
   const wss = new WebSocketServer({ noServer: true });
@@ -90,7 +138,7 @@ export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => voi
     shares: new ShareRepo(ctx.db),
     audit: new AuditLog(ctx.db),
   };
-  const registry = new Map<string, LiveSession>();
+  const registry = ctx.liveSessions;
 
   const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     let pathname: string;
@@ -124,7 +172,7 @@ export function attachTerminalWs(server: HttpServer, ctx: AppContext): () => voi
   server.on('upgrade', onUpgrade);
   return () => {
     server.off('upgrade', onUpgrade);
-    for (const live of registry.values()) live.close('server shutdown');
+    registry.closeAll('server shutdown');
     wss.close();
   };
 }
@@ -167,6 +215,8 @@ class LiveSession {
   private jumpDispose: (() => void) | null = null;
   private shared = false;
   private sawConfigSave = false;
+  private readonly startedAt = Date.now();
+  private detachedAt: number | null = null;
 
   constructor(
     private readonly ctx: AppContext,
@@ -175,13 +225,31 @@ class LiveSession {
     private readonly target: Target,
     private cols: number,
     private rows: number,
-    private readonly registry: Map<string, LiveSession>,
+    private readonly registry: LiveRegistry,
   ) {
     registry.set(this.token, this);
   }
 
   get userId(): string {
     return this.user.id;
+  }
+
+  get isClosed(): boolean {
+    return this.closed;
+  }
+
+  summary(): LiveSessionSummary {
+    const owners = [...this.clients].filter((c) => !c.isObserver).length;
+    return {
+      token: this.token,
+      connectionId: this.target.connectionId ?? null,
+      target: this.target.auditTarget,
+      startedAt: Math.floor(this.startedAt / 1000),
+      detachedAt: this.detachedAt ? Math.floor(this.detachedAt / 1000) : null,
+      attached: owners,
+      observers: this.clients.size - owners,
+      shared: this.shared,
+    };
   }
 
   get isShared(): boolean {
@@ -345,8 +413,9 @@ class LiveSession {
 
   // ---- client attach / detach ----
 
-  attach(client: ClientConn, cols?: number, rows?: number): void {
+  attach(client: ClientConn, cols?: number, rows?: number, fresh = false): void {
     this.clients.add(client);
+    this.detachedAt = null;
     if (this.graceTimer) {
       clearTimeout(this.graceTimer);
       this.graceTimer = null;
@@ -357,10 +426,12 @@ class LiveSession {
       this.backend?.resize(cols, rows);
     }
 
-    // replay whatever was produced while every client was away
-    const skip = Math.max(0, this.detachTotal - (this.producedTotal - this.ringBytes));
-    const missed = Buffer.concat(this.ring).subarray(Math.min(skip, this.ringBytes));
-    if (missed.length) client.sendBinary(missed);
+    // `fresh` (re-attach into a blank terminal, e.g. from another device): replay
+    // the whole ring. Otherwise replay only what was produced while every client
+    // was away — the reconnecting tab already shows the earlier output.
+    const skip = fresh ? 0 : Math.max(0, this.detachTotal - (this.producedTotal - this.ringBytes));
+    const replay = Buffer.concat(this.ring).subarray(Math.min(skip, this.ringBytes));
+    if (replay.length) client.sendBinary(replay);
     if (this.ready) client.send({ t: 'status', state: 'ready' });
     this.fanoutPresence();
   }
@@ -373,12 +444,20 @@ class LiveSession {
     // observers alone must not hold an SSH session open.
     if ([...this.clients].some((c) => !c.isObserver)) return;
     this.detachTotal = this.producedTotal;
-    const grace = this.ctx.config.resumeGraceSec;
-    if (grace <= 0) {
+    // resume disabled → tear the session down as soon as the last client leaves
+    const { resumeGraceSec, durableSessionMin } = this.ctx.config;
+    if (resumeGraceSec <= 0) {
       this.close('websocket closed');
       return;
     }
-    this.graceTimer = setTimeout(() => this.close('resume window expired'), grace * 1000);
+    this.detachedAt = Date.now();
+    // a fully-detached session lives for the longer of the quick resume grace and
+    // the durable-session window, so it can be re-attached from another device.
+    const graceMs = Math.max(resumeGraceSec * 1000, durableSessionMin * 60_000);
+    this.graceTimer = setTimeout(
+      () => this.close(durableSessionMin > 0 ? 'detached session expired' : 'resume window expired'),
+      graceMs,
+    );
     this.graceTimer.unref?.();
   }
 
@@ -569,7 +648,7 @@ class ClientConn {
     private readonly ctx: AppContext,
     private readonly deps: Deps,
     private readonly user: User,
-    private readonly registry: Map<string, LiveSession>,
+    private readonly registry: LiveRegistry,
   ) {
     this.ip = clientIp(req, ctx.config.trustProxy);
   }
@@ -647,7 +726,12 @@ class ClientConn {
         }
         this.live = live;
         this.observer = !owner;
-        live.attach(this, this.observer ? undefined : msg.cols, this.observer ? undefined : msg.rows);
+        live.attach(
+          this,
+          this.observer ? undefined : msg.cols,
+          this.observer ? undefined : msg.rows,
+          !this.observer && msg.fresh === true,
+        );
         this.send({
           t: 'attached',
           token: live.token,

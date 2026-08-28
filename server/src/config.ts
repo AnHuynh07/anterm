@@ -53,6 +53,10 @@ const schema = z.object({
   sshMaxDurationMin: z.coerce.number().nonnegative().default(0),
   // keep an SSH session alive this long after the websocket drops, for resume-on-reconnect
   resumeGraceSec: z.coerce.number().nonnegative().default(90),
+  // durable / tmux-style sessions: keep a fully-detached SSH session alive this
+  // many minutes so it can be re-attached from any browser or device (0 = only
+  // the short resume grace above). Bounded by ssh-idle-timeout / ssh-max-duration.
+  durableSessionMin: z.coerce.number().nonnegative().default(120),
 
   // audit
   record: bool.default(true), // record session I/O + command log
@@ -113,6 +117,10 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     .option('ssh-idle-timeout-min', { type: 'number', describe: 'Close idle SSH sessions after N minutes (0 = off)' })
     .option('ssh-max-duration-min', { type: 'number', describe: 'Hard cap on SSH session length (0 = off)' })
     .option('resume-grace-sec', { type: 'number', describe: 'Keep SSH alive N s after a WS drop for resume (0 = off)' })
+    .option('durable-session-min', {
+      type: 'number',
+      describe: 'Keep a fully-detached SSH session alive N minutes for re-attach from any device (0 = off)',
+    })
     .option('record', { type: 'boolean', describe: 'Record session I/O + command log (default true)' })
     .option('record-dir', { type: 'string', describe: 'Directory for .cast recordings' })
     .option('record-retention-days', { type: 'number', describe: 'Delete recordings older than N days (0 = keep)' })
@@ -157,6 +165,7 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     sshIdleTimeoutMin: parsed.sshIdleTimeoutMin ?? fileCfg.sshIdleTimeoutMin,
     sshMaxDurationMin: parsed.sshMaxDurationMin ?? fileCfg.sshMaxDurationMin,
     resumeGraceSec: parsed.resumeGraceSec ?? fileCfg.resumeGraceSec,
+    durableSessionMin: parsed.durableSessionMin ?? fileCfg.durableSessionMin,
     record: parsed.record ?? fileCfg.record,
     recordDir: parsed.recordDir ?? fileCfg.recordDir,
     recordRetentionDays: parsed.recordRetentionDays ?? fileCfg.recordRetentionDays,
