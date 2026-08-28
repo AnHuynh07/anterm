@@ -26,7 +26,8 @@ export type AuditAction =
   | 'session.recordings_pruned'
   | 'vault.export'
   | 'vault.import'
-  | 'vault.db_backup';
+  | 'vault.db_backup'
+  | 'connection.bulk_run';
 
 export interface AuditActor {
   id?: string | null;

@@ -159,6 +159,36 @@ describe('terminal websocket e2e', () => {
     expect(body.sessions[0]?.target).toContain(`${fx.username}@${fx.host}`);
   });
 
+  it('runs a command across devices with bulk-run (host key already trusted)', async () => {
+    const res = await fetch(`http://${baseUrl}/api/connections/bulk-run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrf },
+      body: JSON.stringify({ connectionIds: [connectionId], command: 'echo bulk-hello-42' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { results: { ok: boolean; output: string; name: string }[] };
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0]?.ok).toBe(true);
+    expect(body.results[0]?.output).toContain('bulk-hello-42');
+  });
+
+  it('bulk-run skips a device whose host key is not trusted', async () => {
+    const mk = await fetch(`http://${baseUrl}/api/connections`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrf },
+      body: JSON.stringify({ name: 'untrusted', host: '127.0.0.1', port: 59999, sshUsername: 'x', authType: 'password' }),
+    });
+    const id = (await mk.json()).connection.id;
+    const res = await fetch(`http://${baseUrl}/api/connections/bulk-run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrf },
+      body: JSON.stringify({ connectionIds: [id], command: 'show version' }),
+    });
+    const body = (await res.json()) as { results: { ok: boolean; error?: string }[] };
+    expect(body.results[0]?.ok).toBe(false);
+    expect(body.results[0]?.error).toMatch(/host key not trusted/i);
+  });
+
   it('enforces CSRF on connection mutations', async () => {
     const res = await fetch(`http://${baseUrl}/api/connections`, {
       method: 'POST',

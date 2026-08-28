@@ -1,14 +1,16 @@
 import { z } from 'zod';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { AppContext } from '../../context.js';
 import type { AnyFastify } from '../types.js';
-import { users } from '../../db/schema.js';
+import { hostKeys, users } from '../../db/schema.js';
+import { AuditLog } from '../../audit.js';
 import { ConnectionRepo, toDto, type ConnectionDto, type ConnectionInput } from '../../connections/repo.js';
 import { CredentialRepo, resolveTarget } from '../../connections/credentials.js';
 import { ShareRepo } from '../../connections/shares.js';
 import { connAccess, type Actor } from '../../access.js';
 import { parseImport, toConnectionInput, toCsv, toPortable } from '../../connections/portable.js';
 import { SshSession } from '../../ssh/client.js';
+import { runCommand, runFanout } from '../../ssh/runner.js';
 import { auditActor, requireAuth, requireWriter } from '../app.js';
 
 const upsertBody = z.object({
@@ -44,10 +46,16 @@ const sharesBody = z.object({
     .max(200),
 });
 
+const bulkRunBody = z.object({
+  connectionIds: z.array(z.string().uuid()).min(1).max(100),
+  command: z.string().min(1).max(4000),
+});
+
 export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void {
   const repo = new ConnectionRepo(ctx.db, ctx.config.appSecret);
   const creds = new CredentialRepo(ctx.db, ctx.config.appSecret);
   const shares = new ShareRepo(ctx.db);
+  const audit = new AuditLog(ctx.db);
 
   const usernamesByIds = async (ids: string[]): Promise<Map<string, string>> => {
     const uniq = [...new Set(ids)];
@@ -311,6 +319,99 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
       detail: { users: wanted.length },
     });
     return { shares: await shares.dtos(id) };
+  });
+
+  // ---- bulk: run one command on many devices ----
+  app.post('/connections/bulk-run', { bodyLimit: 200_000 }, async (req, reply) => {
+    const user = requireWriter(req, reply);
+    if (!user) return;
+    const parsed = bulkRunBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid payload' });
+    const { command } = parsed.data;
+
+    type Row = {
+      connectionId: string;
+      name: string;
+      target: string;
+      ok: boolean;
+      output: string;
+      error?: string;
+      durationMs: number;
+    };
+    const results: Row[] = [];
+
+    await runFanout(
+      parsed.data.connectionIds,
+      async (cid) => {
+        const loaded = await loadForActor(user, cid);
+        if (!loaded) {
+          results.push({ connectionId: cid, name: cid, target: cid, ok: false, output: '', error: 'not found', durationMs: 0 });
+          return;
+        }
+        const conn = loaded.conn;
+        const base = { connectionId: cid, name: conn.name, target: `${conn.sshUsername}@${conn.host}:${conn.port}` };
+        if (!loaded.access.canOpen) {
+          results.push({ ...base, ok: false, output: '', error: 'no access', durationMs: 0 });
+          return;
+        }
+        if (conn.jumpConnectionId) {
+          results.push({ ...base, ok: false, output: '', error: 'jump-host connections are not supported in bulk run yet', durationMs: 0 });
+          return;
+        }
+        const known = await ctx.db.query.hostKeys.findFirst({
+          where: eq(hostKeys.hostport, `${conn.host.toLowerCase()}:${conn.port}`),
+        });
+        if (!known) {
+          results.push({ ...base, ok: false, output: '', error: 'host key not trusted yet — open this device once first', durationMs: 0 });
+          return;
+        }
+        const cred = conn.credentialId ? await creds.get(conn.userId, conn.credentialId) : undefined;
+        const resolved = resolveTarget(conn, cred ?? null, ctx.config.appSecret);
+        const username = conn.sshUsername || resolved.credSshUsername || '';
+        if (!username) {
+          results.push({ ...base, ok: false, output: '', error: 'no SSH username', durationMs: 0 });
+          return;
+        }
+
+        const res = await runCommand({
+          host: conn.host,
+          port: conn.port,
+          username,
+          password: resolved.password,
+          privateKey: resolved.privateKey,
+          passphrase: resolved.passphrase,
+          autoLogin: resolved.autoLogin,
+          command,
+          verifyHostKey: async (info) => info.fingerprint === known.fingerprintSha256,
+        });
+        results.push({ ...base, ...res });
+
+        // thread it through the normal audit + command log
+        try {
+          const sid = await audit.open({ userId: user.id, connectionId: conn.id, target: base.target, clientIp: req.ip });
+          await audit.logCommands({ sessionId: sid, userId: user.id, target: base.target, texts: [command] });
+          await audit.close(sid, {
+            bytesIn: command.length,
+            bytesOut: res.output.length,
+            exitReason: res.ok ? 'bulk run' : (res.error ?? 'bulk run failed'),
+            commandCount: 1,
+          });
+        } catch {
+          /* audit is best-effort */
+        }
+      },
+      6,
+    );
+
+    const okCount = results.filter((r) => r.ok).length;
+    ctx.activity.record({
+      actor: auditActor(req),
+      action: 'connection.bulk_run',
+      detail: { command: command.slice(0, 200), targets: results.length, ok: okCount, failed: results.length - okCount },
+    });
+    // keep the response order stable = request order
+    const byId = new Map(results.map((r) => [r.connectionId, r]));
+    return { results: parsed.data.connectionIds.map((id) => byId.get(id)).filter(Boolean) };
   });
 
   // Fire a throwaway SSH connection and report whether auth + host key check pass.

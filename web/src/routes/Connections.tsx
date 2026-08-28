@@ -9,6 +9,7 @@ import { ConnectionForm, type ConnectionFormValue } from '../components/Connecti
 import { QuickConnect } from '../components/QuickConnect';
 import { ImportExport } from '../components/ImportExport';
 import { ShareDialog } from '../components/ShareDialog';
+import { BulkRunDialog } from '../components/BulkRunDialog';
 import { Badge, type BadgeTone } from '../components/Badge';
 import { COLOR_HEX } from '../components/colors';
 
@@ -27,6 +28,8 @@ export function ConnectionsPage() {
   const [query, setQuery] = useState('');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [showIO, setShowIO] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkRun, setBulkRun] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['connections'],
@@ -99,6 +102,26 @@ export function ConnectionsPage() {
     navigate('/terminal');
   }
 
+  const toggleSel = (id: string) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const selectableIds = filtered.filter((c) => c.canOpen !== false).map((c) => c.id);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const selectedConns = filtered.filter((c) => selected.has(c.id));
+
+  function bulkOpen() {
+    for (const c of selectedConns) openTab({ connectionId: c.id, title: c.name, color: c.color ?? undefined });
+    setSelected(new Set());
+    navigate('/terminal');
+  }
+  function bulkTest() {
+    for (const c of selectedConns) test.mutate(c.id);
+  }
+
   return (
     <div className="page">
       <div className="row between">
@@ -117,6 +140,25 @@ export function ConnectionsPage() {
 
       {showIO && <ImportExport onClose={() => setShowIO(false)} />}
       {serverInfo?.adhoc && <QuickConnect />}
+
+      {canWrite && selected.size > 0 && (
+        <div className="bulk-bar">
+          <b>{selected.size} selected</b>
+          <button className="btn sm" onClick={bulkOpen}>
+            Open all
+          </button>
+          <button className="btn sm" onClick={bulkTest}>
+            Test all
+          </button>
+          <button className="btn primary sm" onClick={() => setBulkRun(true)}>
+            Run command…
+          </button>
+          <span className="spacer" />
+          <button className="btn ghost sm" onClick={() => setSelected(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
 
       {conns.length > 0 && (
         <div className="filterbar">
@@ -152,6 +194,17 @@ export function ConnectionsPage() {
       )}
       {conns.length > 0 && filtered.length === 0 && <p className="muted">No connections match the filter.</p>}
 
+      {canWrite && filtered.length > 1 && (
+        <label className="checkbox select-all">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={(e) => setSelected(e.target.checked ? new Set(selectableIds) : new Set())}
+          />
+          Select all ({selectableIds.length})
+        </label>
+      )}
+
       {grouped.map(([group, list]) => (
         <div key={group} className="conn-group">
           <div className="conn-group-head">
@@ -171,6 +224,16 @@ export function ConnectionsPage() {
                   : null;
                 return (
                   <tr key={c.id} style={c.color ? { boxShadow: `inset 3px 0 0 ${COLOR_HEX[c.color]}` } : undefined}>
+                    {canWrite && (
+                      <td className="sel-cell">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(c.id)}
+                          disabled={c.canOpen === false}
+                          onChange={() => toggleSel(c.id)}
+                        />
+                      </td>
+                    )}
                     <td>
                       <div className="conn-name">{c.name}</div>
                       <div className="mono small muted">
@@ -263,6 +326,9 @@ export function ConnectionsPage() {
       ))}
 
       {sharing && <ShareDialog connection={sharing} onClose={() => setSharing(null)} />}
+      {bulkRun && selectedConns.length > 0 && (
+        <BulkRunDialog connections={selectedConns} onClose={() => setBulkRun(false)} />
+      )}
 
       {editing && (
         <ConnectionForm

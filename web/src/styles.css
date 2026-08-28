@@ -568,6 +568,73 @@ code {
   margin-top: 22px;
 }
 
+/* bulk selection */
+.select-all {
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--text-soft);
+}
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: var(--primary-soft);
+  border: 1px solid #c7d2fe;
+  border-radius: var(--radius-sm);
+}
+.table td.sel-cell {
+  width: 1%;
+  padding-right: 4px;
+}
+.table td.sel-cell input {
+  width: auto;
+  margin: 0;
+}
+.bulk-results {
+  margin-top: 4px;
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.bulk-row + .bulk-row {
+  border-top: 1px solid var(--border);
+}
+.bulk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.bulk-head:hover {
+  background: var(--surface-2);
+}
+.bulk-row.failed .bulk-head {
+  background: var(--down-bg);
+}
+.dash-dot.ok {
+  background: var(--up-solid);
+}
+.dash-dot.bad {
+  background: var(--down-solid);
+}
+.bulk-row .paste-preview {
+  margin: 0 12px 10px;
+}
+.bulk-head .dash-dot {
+  margin: 0;
+  flex: none;
+}
+
 /* dashboard */
 .stat-row {
   display: flex;
