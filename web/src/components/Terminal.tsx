@@ -48,7 +48,13 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
   });
   const [showSnippets, setShowSnippets] = useState(false);
   const [pendingSend, setPendingSend] = useState<{ text: string; exec: boolean } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchInfo, setSearchInfo] = useState<{ index: number; count: number }>({ index: -1, count: 0 });
   const socketRef = useRef<TerminalSocket | null>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const searchRef = useRef<SearchAddon | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const highlightRef = useRef(highlight);
   // keep onExit in a ref so an unstable parent callback never re-triggers the
   // connect effect (which would tear down and re-open the session — flicker)
@@ -59,6 +65,31 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
     queryKey: ['snippets'],
     queryFn: () => api<{ snippets: Snippet[] }>('/snippets'),
   });
+
+  const SEARCH_DECOR = {
+    matchBackground: '#3730a3',
+    matchBorder: '#818cf8',
+    matchOverviewRuler: '#6366f1',
+    activeMatchBackground: '#b45309',
+    activeMatchBorder: '#fbbf24',
+    activeMatchColorOverviewRuler: '#f59e0b',
+  };
+  function runSearch(dir: 'next' | 'prev', term = searchTerm) {
+    if (!term) {
+      searchRef.current?.clearDecorations();
+      setSearchInfo({ index: -1, count: 0 });
+      return;
+    }
+    const opts = { decorations: SEARCH_DECOR, incremental: dir === 'next' };
+    if (dir === 'next') searchRef.current?.findNext(term, opts);
+    else searchRef.current?.findPrevious(term, opts);
+  }
+  function closeSearch() {
+    setSearchOpen(false);
+    searchRef.current?.clearDecorations();
+    setSearchInfo({ index: -1, count: 0 });
+    termRef.current?.focus();
+  }
 
   /** Send text to the session — multi-line goes through a paste-guard confirm. */
   function sendToSession(text: string, exec: boolean) {
@@ -93,11 +124,28 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
       scrollback: 5000,
       allowProposedApi: true,
     });
+    termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
-    term.loadAddon(new SearchAddon());
+    const searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
     term.loadAddon(new ClipboardAddon());
+    searchRef.current = searchAddon;
+    const disposeResults = searchAddon.onDidChangeResults((e) =>
+      setSearchInfo({ index: e.resultIndex, count: e.resultCount }),
+    );
+    cleanups.push(() => disposeResults.dispose());
+
+    // Ctrl/Cmd+Shift+F opens the scrollback finder
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        setSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.select(), 0);
+        return false;
+      }
+      return true;
+    });
 
     // Coalesce resize callbacks to one fit per frame, and skip when the box
     // hasn't actually changed size — a fit() that runs on every ResizeObserver
@@ -202,6 +250,8 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
       clearTimeout(bootTimer);
       cleanups.forEach((fn) => fn());
       term.dispose();
+      termRef.current = null;
+      searchRef.current = null;
     };
   }, [tabKey, connectionId, adhoc]);
 
@@ -255,6 +305,16 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
           </div>
         )}
         <button
+          className="btn ghost sm"
+          title="Search the scrollback (Ctrl+Shift+F)"
+          onClick={() => {
+            setSearchOpen(true);
+            setTimeout(() => searchInputRef.current?.select(), 0);
+          }}
+        >
+          Find
+        </button>
+        <button
           className={`btn ghost sm ${highlight ? 'toggle-on' : ''}`}
           title="Colour UP / DOWN / VLAN keywords in output (does not affect interactive apps)"
           onClick={() => setHighlight((v) => !v)}
@@ -262,6 +322,43 @@ export function TerminalView({ tabKey, connectionId, adhoc, onExit }: Props) {
           Highlight {highlight ? 'on' : 'off'}
         </button>
       </div>
+      {searchOpen && (
+        <div
+          className="term-search"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              closeSearch();
+            } else if (e.key === 'Enter') {
+              e.preventDefault();
+              runSearch(e.shiftKey ? 'prev' : 'next');
+            }
+          }}
+        >
+          <input
+            ref={searchInputRef}
+            value={searchTerm}
+            placeholder="Find in scrollback…"
+            autoFocus
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              runSearch('next', e.target.value);
+            }}
+          />
+          <span className="muted small">
+            {searchInfo.count ? `${searchInfo.index + 1}/${searchInfo.count}` : searchTerm ? '0/0' : ''}
+          </span>
+          <button className="btn ghost sm" title="Previous (Shift+Enter)" onClick={() => runSearch('prev')}>
+            ↑
+          </button>
+          <button className="btn ghost sm" title="Next (Enter)" onClick={() => runSearch('next')}>
+            ↓
+          </button>
+          <button className="btn ghost sm" title="Close (Esc)" onClick={closeSearch}>
+            ✕
+          </button>
+        </div>
+      )}
       <div className="terminal-host" ref={hostRef} />
       {hostKey && (
         <HostKeyPrompt
