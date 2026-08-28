@@ -65,6 +65,7 @@ export function UsersPage() {
             <th>User</th>
             <th>Role</th>
             <th>Status</th>
+            <th>2FA</th>
             <th>Sessions</th>
             <th />
           </tr>
@@ -96,6 +97,7 @@ export function UsersPage() {
               <td>
                 {u.disabled ? <Badge tone="down">disabled</Badge> : <Badge tone="up">active</Badge>}
               </td>
+              <td>{u.twoFactor ? <Badge tone="up">on</Badge> : <span className="muted small">off</span>}</td>
               <td className="small muted">{u.activeSessions}</td>
               <td className="actions">
                 {!u.isSelf && (

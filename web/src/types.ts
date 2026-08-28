@@ -4,6 +4,7 @@ export interface AuthUser {
   id: string;
   username: string;
   role: Role;
+  totpEnabled?: boolean;
 }
 
 export interface ManagedUser {
@@ -11,6 +12,7 @@ export interface ManagedUser {
   username: string;
   role: Role;
   disabled: boolean;
+  twoFactor: boolean;
   createdAt: number;
   activeSessions: number;
   isSelf: boolean;

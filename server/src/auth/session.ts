@@ -16,6 +16,10 @@ export interface ResolvedSession {
 // so a stolen csrf cookie alone is useless without the (HttpOnly) sid.
 const csrfBySid = new Map<string, string>();
 
+// short-lived tickets between the password step and the 2FA step of login
+const mfaTickets = new Map<string, { userId: string; expires: number }>();
+const MFA_TICKET_TTL_MS = 5 * 60_000;
+
 export class SessionService {
   constructor(
     private readonly db: Db,
@@ -91,5 +95,21 @@ export class SessionService {
   async sweepExpired(): Promise<void> {
     const nowSec = Math.floor(Date.now() / 1000);
     await this.db.delete(appSessions).where(lt(appSessions.expiresAt, nowSec));
+    const now = Date.now();
+    for (const [t, v] of mfaTickets) if (v.expires < now) mfaTickets.delete(t);
+  }
+
+  createMfaTicket(userId: string): string {
+    const ticket = randomBytes(24).toString('base64url');
+    mfaTickets.set(ticket, { userId, expires: Date.now() + MFA_TICKET_TTL_MS });
+    return ticket;
+  }
+
+  consumeMfaTicket(ticket: string | undefined): string | null {
+    if (!ticket) return null;
+    const v = mfaTickets.get(ticket);
+    mfaTickets.delete(ticket);
+    if (!v || v.expires < Date.now()) return null;
+    return v.userId;
   }
 }

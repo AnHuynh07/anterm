@@ -63,6 +63,21 @@ export async function setPassword(db: Db, userId: string, password: string): Pro
     .where(eq(users.id, userId));
 }
 
+export async function setTotp(
+  db: Db,
+  userId: string,
+  patch: { totpSecretEnc?: string | null; totpEnabled?: boolean; totpRecoveryEnc?: string | null },
+): Promise<void> {
+  await db
+    .update(users)
+    .set({ ...patch, updatedAt: Math.floor(Date.now() / 1000) })
+    .where(eq(users.id, userId));
+}
+
+export function findById(db: Db, userId: string): Promise<User | undefined> {
+  return db.query.users.findFirst({ where: eq(users.id, userId) });
+}
+
 export async function authenticate(db: Db, username: string, password: string): Promise<User | null> {
   const user = await findByUsername(db, username);
   if (!user || user.disabled) {

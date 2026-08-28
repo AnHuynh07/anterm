@@ -667,6 +667,46 @@ code {
   font-style: italic;
 }
 
+/* two-factor */
+.totp-setup {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  margin-top: 10px;
+}
+.totp-setup img {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  flex: none;
+}
+.totp-setup > div {
+  flex: 1;
+  min-width: 0;
+}
+.totp-key {
+  display: block;
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  word-break: break-all;
+  background: var(--neutral-bg);
+  border-radius: 6px;
+}
+.recovery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+.recovery-grid code {
+  text-align: center;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+}
+
 /* dashboard */
 .stat-row {
   display: flex;

@@ -204,6 +204,14 @@ const migrations: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS config_snapshots_conn_idx ON config_snapshots (connection_id, captured_at);
     `,
   },
+  {
+    id: '0010_totp',
+    sql: /* sql */ `
+      ALTER TABLE users ADD COLUMN totp_secret_enc TEXT;
+      ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN totp_recovery_enc TEXT;
+    `,
+  },
 ];
 
 export function runMigrations(raw: Database.Database): void {

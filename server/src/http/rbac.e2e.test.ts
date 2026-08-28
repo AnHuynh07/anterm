@@ -9,6 +9,7 @@ import { createDb } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { SessionService } from '../auth/session.js';
 import { createUser } from '../auth/users.js';
+import { totpCode } from '../auth/totp.js';
 import { buildApp } from './app.js';
 import { attachTerminalWs } from '../ws/terminal.js';
 
@@ -258,5 +259,54 @@ describe('RBAC + sharing', () => {
     const res = await asUser('boss').GET('/vault/db-backup');
     expect(res.status).toBe(200);
     expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+  });
+
+  it('two-factor: setup, enable, gated login, recovery code, disable', async () => {
+    const setup = await (await asUser('opb').send('POST', '/auth/2fa/setup')).json();
+    expect(setup.secret).toMatch(/^[A-Z2-7]+$/);
+    expect(setup.otpauthUri).toContain('otpauth://totp/');
+
+    const en = await asUser('opb').send('POST', '/auth/2fa/enable', { code: totpCode(setup.secret) });
+    expect(en.status).toBe(200);
+    const { recoveryCodes } = await en.json();
+    expect(recoveryCodes).toHaveLength(8);
+
+    const raw = () =>
+      fetch(`http://${base}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: 'opb', password: 'opb-password' }),
+      });
+
+    // password alone now only yields a ticket
+    const step1 = await (await raw()).json();
+    expect(step1.mfaRequired).toBe(true);
+    expect(step1.ticket).toBeTruthy();
+
+    const twofa = (ticket: string, code: string) =>
+      fetch(`http://${base}/api/auth/login/2fa`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ticket, code }),
+      });
+
+    expect((await twofa(step1.ticket, '000000')).status).toBe(401);
+
+    const s2 = await raw().then((r) => r.json());
+    const good = await twofa(s2.ticket, totpCode(setup.secret));
+    expect(good.status).toBe(200);
+    expect((await good.json()).user.username).toBe('opb');
+
+    // a recovery code also works, once
+    const s3 = await raw().then((r) => r.json());
+    const rec = await twofa(s3.ticket, recoveryCodes[0]);
+    expect(rec.status).toBe(200);
+    const s4 = await raw().then((r) => r.json());
+    expect((await twofa(s4.ticket, recoveryCodes[0])).status).toBe(401); // already used
+
+    // disable
+    const off = await asUser('opb').send('POST', '/auth/2fa/disable', { password: 'opb-password' });
+    expect(off.status).toBe(200);
+    expect((await (await raw()).json()).mfaRequired).toBeUndefined();
   });
 });

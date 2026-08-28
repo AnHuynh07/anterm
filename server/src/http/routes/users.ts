@@ -47,6 +47,7 @@ export function registerUserRoutes(app: AnyFastify, ctx: AppContext): void {
         username: u.username,
         role: u.role,
         disabled: u.disabled,
+        twoFactor: u.totpEnabled,
         createdAt: u.createdAt,
         activeSessions: activeByUser.get(u.id) ?? 0,
         isSelf: u.id === me.id,

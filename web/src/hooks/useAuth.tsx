@@ -8,7 +8,9 @@ interface AuthState {
   isAdmin: boolean;
   /** admin or operator — may create/edit and open sessions */
   canWrite: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  /** resolves to a ticket when the account has 2FA, else completes the login */
+  login: (username: string, password: string) => Promise<{ mfaTicket: string } | void>;
+  loginMfa: (ticket: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -35,7 +37,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(async (username: string, password: string) => {
-    const res = await api<{ user: AuthUser }>('/auth/login', { method: 'POST', body: { username, password } });
+    const res = await api<{ user?: AuthUser; mfaRequired?: boolean; ticket?: string }>('/auth/login', {
+      method: 'POST',
+      body: { username, password },
+    });
+    if (res.mfaRequired && res.ticket) return { mfaTicket: res.ticket };
+    if (res.user) setUser(res.user);
+  }, []);
+
+  const loginMfa = useCallback(async (ticket: string, code: string) => {
+    const res = await api<{ user: AuthUser }>('/auth/login/2fa', { method: 'POST', body: { ticket, code } });
     setUser(res.user);
   }, []);
 
@@ -51,10 +62,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAdmin: user?.role === 'admin',
       canWrite: user?.role === 'admin' || user?.role === 'operator',
       login,
+      loginMfa,
       logout,
       refresh,
     }),
-    [user, loading, login, logout, refresh],
+    [user, loading, login, loginMfa, logout, refresh],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -83,7 +83,7 @@ export async function buildApp(ctx: AppContext): Promise<AnyFastify> {
     if (!MUTATING.has(req.method)) return;
     const path = req.url.split('?')[0] ?? '';
     if (!path.includes('/api/')) return;
-    if (path.endsWith('/api/auth/login')) return; // no session yet
+    if (path.endsWith('/api/auth/login') || path.endsWith('/api/auth/login/2fa')) return; // no session yet
     const headerToken = req.headers['x-csrf-token'];
     const cookieToken = req.cookies[CSRF_COOKIE];
     if (!headerToken || !cookieToken || headerToken !== cookieToken) {

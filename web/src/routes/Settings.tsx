@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
 import { VaultBackup } from '../components/VaultBackup';
+import { TwoFactorCard } from '../components/TwoFactorCard';
 import type { Snippet } from '../types';
 
 export function SettingsPage() {
@@ -69,6 +70,8 @@ export function SettingsPage() {
           {change.isPending ? 'Saving…' : 'Update password'}
         </button>
       </form>
+
+      <TwoFactorCard />
 
       <SnippetsCard />
 

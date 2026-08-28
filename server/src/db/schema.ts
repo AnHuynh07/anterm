@@ -13,6 +13,9 @@ export const users = sqliteTable(
       .notNull()
       .default('operator'),
     disabled: integer('disabled', { mode: 'boolean' }).notNull().default(false),
+    totpSecretEnc: text('totp_secret_enc'),
+    totpEnabled: integer('totp_enabled', { mode: 'boolean' }).notNull().default(false),
+    totpRecoveryEnc: text('totp_recovery_enc'), // JSON array of unused recovery codes (encrypted)
     createdAt: integer('created_at').notNull().default(now),
     updatedAt: integer('updated_at').notNull().default(now),
   },
