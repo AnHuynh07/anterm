@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Icon } from './icons';
+import { useAlertEvents, lastSeenAlert } from '../lib/alerts';
 
 const NAV = [
   ['/dashboard', 'Dashboard', 'dashboard', false],
@@ -19,6 +20,8 @@ const ROLE_LABEL: Record<string, string> = { admin: 'Admin', operator: 'Operator
 export function Layout() {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const { data: alertData } = useAlertEvents();
+  const unseenAlerts = (alertData?.events ?? []).some((e) => e.ts > lastSeenAlert());
 
   return (
     <div className="app-shell">
@@ -32,6 +35,7 @@ export function Layout() {
             <NavLink key={to} to={to} className={navClass}>
               <Icon name={icon} />
               <span>{label}</span>
+              {to === '/dashboard' && unseenAlerts && <span className="nav-dot" title="New status changes" />}
             </NavLink>
           ))}
         </nav>

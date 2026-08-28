@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
 import { VaultBackup } from '../components/VaultBackup';
 import { TwoFactorCard } from '../components/TwoFactorCard';
+import { AlertSettingsCard } from '../components/AlertSettingsCard';
 import type { Snippet } from '../types';
 
 export function SettingsPage() {
@@ -75,6 +76,7 @@ export function SettingsPage() {
 
       <SnippetsCard />
 
+      {isAdmin && <AlertSettingsCard />}
       {isAdmin && <VaultBackup />}
     </div>
   );

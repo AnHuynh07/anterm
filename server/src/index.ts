@@ -10,6 +10,8 @@ import { bootstrapAdmin } from './auth/users.js';
 import { SessionService } from './auth/session.js';
 import { AuditLog } from './audit.js';
 import { ActivityLog } from './activity.js';
+import { AppSettingsStore } from './settings.js';
+import { Alerter } from './alerts.js';
 import { ReachabilityMonitor } from './health/monitor.js';
 import { buildApp } from './http/app.js';
 import { attachTerminalWs } from './ws/terminal.js';
@@ -28,11 +30,17 @@ async function main(): Promise<void> {
   const sessions = new SessionService(dbHandle.db, config.sessionTtlHours * 3_600_000);
   await bootstrapAdmin(dbHandle.db, log, { username: config.adminUser, password: config.adminPassword });
 
-  const reachability = new ReachabilityMonitor(dbHandle.db, log, config.allowHosts);
+  const settings = new AppSettingsStore(dbHandle.db);
+  const alerter = new Alerter(settings, log);
+  const reachability = new ReachabilityMonitor(dbHandle.db, log, config.allowHosts, 60_000, config.alertAfterFailures);
+  reachability.onTransition = (t) => {
+    log.info({ name: t.name, status: t.status, from: t.prevStatus }, 'reachability changed');
+    void alerter.dispatch(t);
+  };
   reachability.start();
 
   const activity = new ActivityLog(dbHandle.db, log);
-  const ctx: AppContext = { config, log, db: dbHandle.db, dbHandle, sessions, reachability, activity };
+  const ctx: AppContext = { config, log, db: dbHandle.db, dbHandle, sessions, reachability, activity, settings, alerter };
 
   const app = await buildApp(ctx);
   const detachWs = attachTerminalWs(app.server, ctx);

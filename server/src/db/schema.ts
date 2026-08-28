@@ -244,6 +244,33 @@ export const auditEvents = sqliteTable(
   }),
 );
 
+/** Small key-value store for admin-editable runtime settings (alert webhook, …). */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull().default(now),
+});
+
+/** A recorded up/down transition for a connection — powers alerts + the uptime feed. */
+export const reachabilityEvents = sqliteTable(
+  'reachability_events',
+  {
+    id: text('id').primaryKey(),
+    connectionId: text('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    ts: integer('ts').notNull().default(now),
+    status: text('status').notNull(), // 'up' | 'down' | 'unknown'
+    prevStatus: text('prev_status'),
+    latencyMs: integer('latency_ms'),
+    detail: text('detail'),
+  },
+  (t) => ({
+    tsIdx: index('reachability_events_ts_idx').on(t.ts),
+    connIdx: index('reachability_events_conn_idx').on(t.connectionId, t.ts),
+  }),
+);
+
 export type Role = (typeof users.$inferSelect)['role'];
 export type User = typeof users.$inferSelect;
 export type Connection = typeof connections.$inferSelect;
@@ -254,3 +281,5 @@ export type Snippet = typeof snippets.$inferSelect;
 export type ConnectionShare = typeof connectionShares.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type ConfigSnapshot = typeof configSnapshots.$inferSelect;
+export type AppSetting = typeof appSettings.$inferSelect;
+export type ReachabilityEvent = typeof reachabilityEvents.$inferSelect;

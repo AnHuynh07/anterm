@@ -178,6 +178,15 @@ h2 {
 .sidebar nav a.active svg {
   opacity: 1;
 }
+.sidebar nav a .nav-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger, #ef4444);
+  margin-left: auto;
+  flex: none;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.22);
+}
 .sidebar-foot {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-top: 12px;

@@ -9,6 +9,8 @@ import { SessionService } from '../auth/session.js';
 import { createUser } from '../auth/users.js';
 import { ReachabilityMonitor } from '../health/monitor.js';
 import { ActivityLog } from '../activity.js';
+import { AppSettingsStore } from '../settings.js';
+import { Alerter } from '../alerts.js';
 import { buildApp } from '../http/app.js';
 import { attachTerminalWs } from './terminal.js';
 import { startSshFixture, type SshFixture } from '../../test/sshFixture.js';
@@ -48,6 +50,8 @@ beforeAll(async () => {
     sessions,
     reachability: new ReachabilityMonitor(dbHandle.db, log, []),
     activity: new ActivityLog(dbHandle.db),
+    settings: new AppSettingsStore(dbHandle.db),
+    alerter: new Alerter(new AppSettingsStore(dbHandle.db), log),
   };
   await createUser(dbHandle.db, { username: 'a', password: 'a-password', role: 'operator' });
 

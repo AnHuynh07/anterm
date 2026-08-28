@@ -62,6 +62,9 @@ const schema = z.object({
   // allow admins to export/import the vault with decrypted secrets + download a DB backup
   allowSecretExport: bool.default(true),
 
+  // reachability alerting: fire only after N consecutive same-status probes (flap guard)
+  alertAfterFailures: z.coerce.number().int().min(1).max(10).default(2),
+
   // WeTTY-style ad-hoc SSH defaults
   ssh: z.object({
     host: z.string().optional(),
@@ -117,6 +120,10 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
       type: 'boolean',
       describe: 'Allow admins to export the vault with decrypted secrets + a DB backup (default true)',
     })
+    .option('alert-after-failures', {
+      type: 'number',
+      describe: 'Fire a reachability alert only after N consecutive same-status probes (default 2)',
+    })
     .option('ssl-key', { type: 'string' })
     .option('ssl-cert', { type: 'string' })
     .option('ssh-host', { type: 'string', describe: 'Ad-hoc mode: default SSH host' })
@@ -154,6 +161,7 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     recordDir: parsed.recordDir ?? fileCfg.recordDir,
     recordRetentionDays: parsed.recordRetentionDays ?? fileCfg.recordRetentionDays,
     allowSecretExport: parsed.allowSecretExport ?? fileCfg.allowSecretExport,
+    alertAfterFailures: parsed.alertAfterFailures ?? fileCfg.alertAfterFailures,
     ssh: {
       host: parsed.sshHost ?? fileSsh.host,
       port: parsed.sshPort ?? fileSsh.port,

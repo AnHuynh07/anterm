@@ -143,6 +143,45 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     return { health: await ctx.reachability.checkByIds(ids) };
   });
 
+  // recent up/down transitions across the caller's visible connections
+  app.get('/connections/health/events', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const visible = new Map((await visibleList(user)).map((c) => [c.id, c.name]));
+    const limit = Number((req.query as { limit?: string }).limit) || 60;
+    const rows = (await ctx.reachability.recentEvents(300)).filter((e) => visible.has(e.connectionId)).slice(0, limit);
+    return {
+      events: rows.map((e) => ({
+        id: e.id,
+        connectionId: e.connectionId,
+        name: visible.get(e.connectionId) ?? '(removed)',
+        ts: e.ts,
+        status: e.status,
+        prevStatus: e.prevStatus,
+        latencyMs: e.latencyMs,
+        detail: e.detail,
+      })),
+    };
+  });
+
+  app.get('/connections/:id/health/history', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const { id } = req.params as { id: string };
+    if (!(await loadForActor(user, id))) return reply.code(404).send({ error: 'connection not found' });
+    const rows = await ctx.reachability.eventsForConnection(id, 200);
+    return {
+      events: rows.map((e) => ({
+        id: e.id,
+        ts: e.ts,
+        status: e.status,
+        prevStatus: e.prevStatus,
+        latencyMs: e.latencyMs,
+        detail: e.detail,
+      })),
+    };
+  });
+
   // ---- export (never includes secrets) ----
   app.get('/connections/export', async (req, reply) => {
     const user = requireAuth(req, reply);

@@ -120,6 +120,22 @@ export interface ReachResult {
   detail: string | null;
 }
 
+export interface ReachEvent {
+  id: string;
+  connectionId: string;
+  name?: string;
+  ts: number;
+  status: 'up' | 'down' | 'unknown';
+  prevStatus: string | null;
+  latencyMs: number | null;
+  detail: string | null;
+}
+
+export interface AlertSettings {
+  enabled: boolean;
+  webhookUrl: string;
+}
+
 export interface CommandRecord {
   id: string;
   ts: number;

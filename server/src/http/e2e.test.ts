@@ -5,6 +5,8 @@ import { loadConfig } from '../config.js';
 import type { AppContext } from '../context.js';
 import { ReachabilityMonitor } from '../health/monitor.js';
 import { ActivityLog } from '../activity.js';
+import { AppSettingsStore } from '../settings.js';
+import { Alerter } from '../alerts.js';
 import { createDb } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { SessionService } from '../auth/session.js';
@@ -40,6 +42,8 @@ beforeAll(async () => {
     sessions,
     reachability: new ReachabilityMonitor(dbHandle.db, log, []),
     activity: new ActivityLog(dbHandle.db),
+    settings: new AppSettingsStore(dbHandle.db),
+    alerter: new Alerter(new AppSettingsStore(dbHandle.db), log),
   };
 
   const user = await createUser(dbHandle.db, { username: 'e2e', password: 'e2e-password', role: 'admin' });

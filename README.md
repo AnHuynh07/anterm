@@ -50,6 +50,10 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
 - **Import / export** the inventory as JSON or CSV (no secrets; credentials referenced by name)
 - **Reachability dashboard** — periodic TCP probe of every saved connection; a grouped
   UP / DOWN board with latency
+- **Reachability alerting** — a confirmed UP⇄DOWN transition (debounced over
+  `--alert-after-failures` probes) is written to a status-change feed on the Dashboard and
+  POSTed to a webhook — one `text` field for Slack / Mattermost / Discord plus a full
+  `anterm` object; configured in Settings, admin-only, with a "send test" button
 - **Resume on reconnect** — a dropped WebSocket re-attaches to the still-running SSH session
   and replays whatever output was missed (grace window, default 90 s)
 - **Broadcast** — type once, send to every open terminal tab (with a loud banner)

@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { Connection, ReachResult } from '../types';
 import { useAuth } from '../hooks/useAuth';
 import { useTerminalTabs } from '../hooks/useTerminalTabs';
+import { Badge } from '../components/Badge';
+import { markAlertsSeen, useAlertEvents } from '../lib/alerts';
 
 const UNGROUPED = 'Ungrouped';
 
@@ -28,6 +30,14 @@ export function DashboardPage() {
     mutationFn: () => api<{ health: Record<string, ReachResult> }>('/connections/health/check', { method: 'POST' }),
     onSuccess: (res) => qc.setQueryData(['connections-health'], res),
   });
+
+  const { data: eventsData } = useAlertEvents();
+  const events = useMemo(() => eventsData?.events ?? [], [eventsData]);
+
+  useEffect(() => {
+    const newest = events[0];
+    if (newest) markAlertsSeen(newest.ts);
+  }, [events]);
 
   const conns = useMemo(() => connData?.connections ?? [], [connData]);
   const health = useMemo<Record<string, ReachResult>>(() => healthData?.health ?? {}, [healthData]);
@@ -83,6 +93,32 @@ export function DashboardPage() {
           <span className="muted small">checked {new Date(dataUpdatedAt).toLocaleTimeString()}</span>
         )}
       </div>
+
+      {events.length > 0 && (
+        <div className="card" style={{ marginBottom: 18 }}>
+          <h2>Recent status changes</h2>
+          <table className="table">
+            <tbody>
+              {events.slice(0, 12).map((e) => (
+                <tr key={e.id}>
+                  <td style={{ width: 1, whiteSpace: 'nowrap' }}>
+                    <Badge tone={e.status === 'up' ? 'up' : e.status === 'down' ? 'down' : 'warn'} dot>
+                      {e.status.toUpperCase()}
+                    </Badge>
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{e.name}</td>
+                  <td className="muted small">
+                    {e.status === 'up' && e.latencyMs != null ? `${e.latencyMs} ms` : (e.detail ?? '')}
+                  </td>
+                  <td className="muted small" style={{ width: 1, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    {new Date(e.ts).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {conns.length === 0 && <p className="muted">No connections to monitor.</p>}
 

@@ -4,6 +4,8 @@ import type { Db, DbHandle } from './db/client.js';
 import type { SessionService } from './auth/session.js';
 import type { ReachabilityMonitor } from './health/monitor.js';
 import type { ActivityLog } from './activity.js';
+import type { AppSettingsStore } from './settings.js';
+import type { Alerter } from './alerts.js';
 
 export interface AppContext {
   config: AppConfig;
@@ -13,4 +15,6 @@ export interface AppContext {
   sessions: SessionService;
   reachability: ReachabilityMonitor;
   activity: ActivityLog;
+  settings: AppSettingsStore;
+  alerter: Alerter;
 }

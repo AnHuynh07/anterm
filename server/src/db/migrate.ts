@@ -212,6 +212,27 @@ const migrations: { id: string; sql: string }[] = [
       ALTER TABLE users ADD COLUMN totp_recovery_enc TEXT;
     `,
   },
+  {
+    id: '0011_reachability_alerts',
+    sql: /* sql */ `
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+      );
+      CREATE TABLE IF NOT EXISTS reachability_events (
+        id TEXT PRIMARY KEY,
+        connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+        ts INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        status TEXT NOT NULL,
+        prev_status TEXT,
+        latency_ms INTEGER,
+        detail TEXT
+      );
+      CREATE INDEX IF NOT EXISTS reachability_events_ts_idx ON reachability_events (ts);
+      CREATE INDEX IF NOT EXISTS reachability_events_conn_idx ON reachability_events (connection_id, ts);
+    `,
+  },
 ];
 
 export function runMigrations(raw: Database.Database): void {
