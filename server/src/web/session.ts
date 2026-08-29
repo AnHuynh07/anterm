@@ -1,7 +1,9 @@
 import http from 'node:http';
 import https from 'node:https';
 import { Buffer } from 'node:buffer';
-import type { ResolvedWebTarget } from '../connections/repo.js';
+import type { Db } from '../db/client.js';
+import type { Connection } from '../db/schema.js';
+import { ConnectionRepo, type ResolvedWebTarget } from '../connections/repo.js';
 
 export const SESSION_TTL_MS = 30 * 60_000;
 export const MAX_LOGIN_ATTEMPTS = 2;
@@ -155,4 +157,57 @@ export async function ensureAuthed(web: ResolvedWebTarget, sess: ProxySession): 
   if (web.authMode === 'form' && sess.cookies.size === 0 && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
     await formLogin(web, sess);
   }
+}
+
+/** Just what {@link authedGet} needs from the app context (kept structural to avoid an import cycle). */
+export interface WebFetchCtx {
+  db: Db;
+  config: { appSecret: string; allowHosts: string[] };
+  webProxy: WebProxyRegistry;
+}
+
+/**
+ * GET a path on a web-managed device through the owning user's authenticated
+ * proxy session, re-running the form login once on a 401. Shared by the config
+ * backup fetcher and the device-facts scraper.
+ */
+export async function authedGet(
+  ctx: WebFetchCtx,
+  conn: Connection,
+  path: string,
+  userAgent = 'AnTerm',
+): Promise<{ web: ResolvedWebTarget; res: RawResponse }> {
+  const web = new ConnectionRepo(ctx.db, ctx.config.appSecret).resolveWebTarget(conn);
+  if (!web) throw new Error('web device settings are incomplete');
+
+  const base = new URL(web.url);
+  const allow = ctx.config.allowHosts;
+  if (allow.length && !allow.includes(base.hostname.toLowerCase())) {
+    throw new Error(`target host not allowed: ${base.hostname}`);
+  }
+
+  const sess = ctx.webProxy.get(conn.userId, conn.id);
+  await ensureAuthed(web, sess);
+
+  const url = new URL(path, base).toString();
+  const doGet = () =>
+    rawRequest({
+      url,
+      method: 'GET',
+      headers: {
+        host: base.host,
+        'accept-encoding': 'identity',
+        'user-agent': userAgent,
+        ...authHeaders(web, sess),
+      },
+      insecureTls: web.insecureTls,
+    });
+
+  let res = await doGet();
+  if (res.status === 401 && web.authMode === 'form' && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
+    sess.cookies.clear();
+    await formLogin(web, sess);
+    res = await doGet();
+  }
+  return { web, res };
 }

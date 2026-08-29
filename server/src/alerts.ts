@@ -21,6 +21,16 @@ export interface ConfigDrift {
   ts: number;
 }
 
+export interface FirmwareChange {
+  name: string;
+  target: string;
+  /** the expected firmware (baseline) */
+  expected: string;
+  /** what the device is actually running now */
+  now: string;
+  ts: number;
+}
+
 export class Alerter {
   constructor(
     private readonly settings: AppSettingsStore,
@@ -55,6 +65,16 @@ export class Alerter {
         (d.added || d.removed ? `  (+${d.added} / −${d.removed} lines)` : '');
       return JSON.stringify({ text, anterm: { kind: 'config-drift', ...d } });
     };
+    await this.post(build, d.name);
+  }
+
+  /** A web device's scraped firmware no longer matches its configured baseline. */
+  async dispatchFirmwareChange(d: FirmwareChange): Promise<void> {
+    const build = () =>
+      JSON.stringify({
+        text: `🔧 *${d.name}* (${d.target}) firmware is now *${d.now}* — expected *${d.expected}*`,
+        anterm: { kind: 'firmware-change', ...d },
+      });
     await this.post(build, d.name);
   }
 

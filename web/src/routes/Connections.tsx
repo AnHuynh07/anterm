@@ -408,6 +408,9 @@ function toBody(value: ConnectionFormValue) {
           username: value.webUsername.trim() || null,
           insecureTls: value.webInsecureTls,
           configUrl: value.webConfigUrl.trim() || null,
+          factsUrl: value.webFactsUrl.trim() || null,
+          factsRules: value.webFactsRules.trim() || null,
+          firmwareBaseline: value.webFirmwareBaseline.trim() || null,
           ...(value.webPassword.length ? { password: value.webPassword } : {}),
         }
       : null;

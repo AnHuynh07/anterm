@@ -47,7 +47,9 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
   stored credentials (form or HTTP Basic), and frames it inside AnTerm — one click, already
   logged in. Absolute paths / redirects / cookies rewritten; self-signed HTTPS accepted;
   credentials encrypted at rest and never sent to the browser. Give it a **config backup URL**
-  and its config history + drift alerts work exactly like an SSH device
+  and its config history + drift alerts work exactly like an SSH device; give it a
+  **device-info URL** and AnTerm scrapes model / firmware / uptime read-only into a panel on
+  the device page and alerts when the firmware drifts off a baseline you set
 - **Jump host / ProxyJump** — reach a device by tunnelling through another saved connection
   (chain up to 4 bastions); the bastion's own credentials and host-key trust are reused
 - **Bulk actions** — select many devices and run one command across all of them in parallel,

@@ -14,6 +14,9 @@ export interface ConnectionFormValue {
   webPassword: string;
   webInsecureTls: boolean;
   webConfigUrl: string;
+  webFactsUrl: string;
+  webFactsRules: string;
+  webFirmwareBaseline: string;
   sshUsername: string;
   credentialId: string;
   jumpConnectionId: string;
@@ -72,6 +75,9 @@ export function ConnectionForm({
     webPassword: '',
     webInsecureTls: initial?.web?.insecureTls ?? false,
     webConfigUrl: initial?.web?.configUrl ?? '',
+    webFactsUrl: initial?.web?.factsUrl ?? '',
+    webFactsRules: initial?.web?.factsRules ?? '',
+    webFirmwareBaseline: initial?.web?.firmwareBaseline ?? '',
     sshUsername: initial?.sshUsername ?? '',
     credentialId: initial?.credentialId ?? '',
     jumpConnectionId: initial?.jumpConnectionId ?? '',
@@ -288,6 +294,36 @@ export function ConnectionForm({
               placeholder="/iss/backup.cfg  (find it via the device's Backup button + browser devtools)"
             />
           </label>
+          <div className="grid2">
+            <label>
+              Device-info URL <span className="muted small">— optional; scrapes model / firmware / uptime</span>
+              <input
+                value={v.webFactsUrl}
+                onChange={(e) => set('webFactsUrl', e.target.value)}
+                placeholder="/iss/specific/dumpSysinfoData.htm"
+              />
+            </label>
+            <label>
+              Expected firmware <span className="muted small">— alert if it drifts</span>
+              <input
+                value={v.webFirmwareBaseline}
+                onChange={(e) => set('webFirmwareBaseline', e.target.value)}
+                placeholder="e.g. 2.4.4"
+              />
+            </label>
+          </div>
+          {v.webFactsUrl.trim() !== '' && (
+            <label>
+              Info scrape rules <span className="muted small">— one <code>Label = regex</code> per line; blank = built-in Allied Telesis defaults</span>
+              <textarea
+                rows={3}
+                value={v.webFactsRules}
+                onChange={(e) => set('webFactsRules', e.target.value)}
+                placeholder={'Firmware = Runtime\\s+([0-9.]+)\nUptime = Up ?Time\\s*:?\\s*(.+)'}
+                spellCheck={false}
+              />
+            </label>
+          )}
           <p className="muted small">
             Login form fields default to Allied Telesis (<code>/iss/redirect.html</code>, <code>Login</code> /{' '}
             <code>Password</code>). Change them on the device’s API if needed later.

@@ -23,8 +23,10 @@ if (web) {
   console.log(`\n  Dev WEB SWITCH target on ${s.url.replace(/\/$/, '')}  (running on :${s.port})`);
   console.log(`    web login    : ${s.user} / ${s.pass}`);
   console.log(`    config backup: /iss/backup.cfg`);
+  console.log(`    device info  : /iss/sysinfo.htm   (firmware ${s.firmware})`);
   console.log(`\n  In AnTerm: New connection → protocol "Web (HTTP)", URL http://127.0.0.1:${s.port}/,`);
-  console.log(`  username ${s.user}, password ${s.pass}, config backup URL /iss/backup.cfg\n`);
+  console.log(`  username ${s.user}, password ${s.pass}, config backup URL /iss/backup.cfg,`);
+  console.log(`  device-info URL /iss/sysinfo.htm, expected firmware ${s.firmware}\n`);
   console.log('  Ctrl+C to stop.\n');
   const stop = () => void s.close().then(() => process.exit(0));
   process.on('SIGINT', stop);

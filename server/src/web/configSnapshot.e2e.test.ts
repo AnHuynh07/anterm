@@ -14,7 +14,7 @@ import { AppSettingsStore, ALERTS_KEY } from '../settings.js';
 import { Alerter } from '../alerts.js';
 import { LiveRegistry } from '../ws/terminal.js';
 import { WebProxyRegistry } from './proxy.js';
-import { WebConfigScheduler } from './configScheduler.js';
+import { WebDeviceScheduler } from './deviceScheduler.js';
 import { buildApp } from '../http/app.js';
 import { startWebSwitchFixture, type WebSwitchFixture } from '../../test/webSwitchFixture.js';
 
@@ -169,7 +169,7 @@ describe('web-device config history', () => {
 
   it('the scheduled sweep fires a config-drift alert to the webhook on a change', async () => {
     await ctx.settings.setJson(ALERTS_KEY, { enabled: true, webhookUrl: webhook.url });
-    const sched = new WebConfigScheduler(ctx);
+    const sched = new WebDeviceScheduler(ctx);
 
     webhook.hits.length = 0;
     await sched.sweep(); // config unchanged since the last manual snapshot -> no alert

@@ -25,6 +25,12 @@ export interface WebSettingsInput {
   passField?: string | null;
   /** where the device's config-backup button downloads from */
   configUrl?: string | null;
+  /** a status/about page to scrape read-only device facts from */
+  factsUrl?: string | null;
+  /** newline-delimited `Label = regex` rules for scraping `factsUrl` (blank = built-in defaults) */
+  factsRules?: string | null;
+  /** expected firmware string; a scraped "firmware" fact that differs fires a drift alert */
+  firmwareBaseline?: string | null;
 }
 
 /** Web-device config as stored (password encrypted). */
@@ -38,6 +44,9 @@ export interface WebSettingsStored {
   userField: string | null;
   passField: string | null;
   configUrl: string | null;
+  factsUrl: string | null;
+  factsRules: string | null;
+  firmwareBaseline: string | null;
 }
 
 /** Web-device config as returned to the client (no secret). */
@@ -51,6 +60,9 @@ export interface WebSettingsDto {
   userField: string | null;
   passField: string | null;
   configUrl: string | null;
+  factsUrl: string | null;
+  factsRules: string | null;
+  firmwareBaseline: string | null;
 }
 
 export interface ConnectionInput {
@@ -118,6 +130,9 @@ function parseWebStored(raw: string | null): WebSettingsStored | null {
       userField: s.userField ?? null,
       passField: s.passField ?? null,
       configUrl: s.configUrl ?? null,
+      factsUrl: s.factsUrl ?? null,
+      factsRules: s.factsRules ?? null,
+      firmwareBaseline: s.firmwareBaseline ?? null,
     };
   } catch {
     return null;
@@ -137,6 +152,9 @@ function webToDto(raw: string | null): WebSettingsDto | null {
     userField: s.userField,
     passField: s.passField,
     configUrl: s.configUrl,
+    factsUrl: s.factsUrl,
+    factsRules: s.factsRules,
+    firmwareBaseline: s.firmwareBaseline,
   };
 }
 
@@ -155,6 +173,9 @@ export interface ResolvedWebTarget {
   userField: string;
   passField: string;
   configUrl: string | null;
+  factsUrl: string | null;
+  factsRules: string | null;
+  firmwareBaseline: string | null;
 }
 
 /** Shape returned to the client — never includes decrypted secrets. */
@@ -304,6 +325,9 @@ export class ConnectionRepo {
       userField: s.userField?.trim() || null,
       passField: s.passField?.trim() || null,
       configUrl: s.configUrl?.trim() || null,
+      factsUrl: s.factsUrl?.trim() || null,
+      factsRules: s.factsRules?.trim() || null,
+      firmwareBaseline: s.firmwareBaseline?.trim() || null,
     };
     return JSON.stringify(stored);
   }
@@ -322,6 +346,9 @@ export class ConnectionRepo {
       userField: s.userField || 'Login',
       passField: s.passField || 'Password',
       configUrl: s.configUrl || null,
+      factsUrl: s.factsUrl || null,
+      factsRules: s.factsRules || null,
+      firmwareBaseline: s.firmwareBaseline || null,
     };
   }
 

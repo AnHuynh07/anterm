@@ -73,6 +73,22 @@ export interface WebSettings {
   userField: string | null;
   passField: string | null;
   configUrl: string | null;
+  factsUrl: string | null;
+  factsRules: string | null;
+  firmwareBaseline: string | null;
+}
+
+export interface WebFact {
+  label: string;
+  value: string;
+}
+
+export interface WebFactsResponse {
+  facts: WebFact[];
+  fetchedAt: number;
+  firmware: string | null;
+  baseline: string | null;
+  firmwareOk: boolean;
 }
 
 export interface Connection {

@@ -32,6 +32,10 @@ function webFromStored(raw: string | null, appSecret: string): VaultWeb | null {
       loginPath: (s.loginPath as string | null) ?? null,
       userField: (s.userField as string | null) ?? null,
       passField: (s.passField as string | null) ?? null,
+      configUrl: (s.configUrl as string | null) ?? null,
+      factsUrl: (s.factsUrl as string | null) ?? null,
+      factsRules: (s.factsRules as string | null) ?? null,
+      firmwareBaseline: (s.firmwareBaseline as string | null) ?? null,
     };
   } catch {
     return null;
@@ -49,6 +53,10 @@ function webToStored(w: VaultWeb | null, appSecret: string): string | null {
     loginPath: w.loginPath ?? null,
     userField: w.userField ?? null,
     passField: w.passField ?? null,
+    configUrl: w.configUrl ?? null,
+    factsUrl: w.factsUrl ?? null,
+    factsRules: w.factsRules ?? null,
+    firmwareBaseline: w.firmwareBaseline ?? null,
   });
 }
 
@@ -74,6 +82,10 @@ export interface VaultWeb {
   loginPath: string | null;
   userField: string | null;
   passField: string | null;
+  configUrl: string | null;
+  factsUrl: string | null;
+  factsRules: string | null;
+  firmwareBaseline: string | null;
 }
 
 export interface VaultConnection {

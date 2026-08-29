@@ -14,6 +14,7 @@ import { runCommand, runFanout } from '../../ssh/runner.js';
 import { SnapshotRepo, toSnapshotDto } from '../../config/snapshots.js';
 import { configDiff, diffStats } from '../../config/diff.js';
 import { fetchWebConfig } from '../../web/configFetch.js';
+import { fetchWebFacts } from '../../web/facts.js';
 import { auditActor, requireAuth, requireWriter } from '../app.js';
 
 const webSettingsBody = z.object({
@@ -26,6 +27,9 @@ const webSettingsBody = z.object({
   userField: z.string().max(64).nullish(),
   passField: z.string().max(64).nullish(),
   configUrl: z.string().max(2048).nullish(),
+  factsUrl: z.string().max(2048).nullish(),
+  factsRules: z.string().max(8192).nullish(),
+  firmwareBaseline: z.string().max(128).nullish(),
 });
 
 const upsertBody = z.object({
@@ -355,6 +359,26 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     if (!web) return reply.code(400).send({ error: 'web device settings are incomplete' });
     ctx.activity.record({ actor: auditActor(req), action: 'webdevice.reveal', target: web.url });
     return { url: web.url, username: web.username, password: web.password, authMode: web.authMode };
+  });
+
+  // web-managed device: scrape read-only facts (model / firmware / uptime) from its status page
+  app.get('/connections/:id/web-facts', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const { id } = req.params as { id: string };
+    const loaded = await loadForActor(user, id);
+    if (!loaded) return reply.code(404).send({ error: 'connection not found' });
+    if (loaded.conn.protocol !== 'http') return reply.code(400).send({ error: 'not a web device' });
+    if (!loaded.access.canOpen) return reply.code(403).send({ error: 'you do not have access to this device' });
+    const web = repo.resolveWebTarget(loaded.conn);
+    if (!web?.factsUrl) return reply.code(400).send({ error: 'no device-info URL set for this device' });
+    try {
+      const { facts, fetchedAt, firmware } = await fetchWebFacts(ctx, loaded.conn);
+      const baseline = web.firmwareBaseline;
+      return { facts, fetchedAt, firmware, baseline, firmwareOk: !baseline || !firmware || firmware === baseline };
+    } catch (err) {
+      return reply.code(502).send({ error: (err as Error).message });
+    }
   });
 
   // ---- sharing ----

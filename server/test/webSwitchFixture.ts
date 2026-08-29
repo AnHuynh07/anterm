@@ -10,6 +10,10 @@ export interface WebSwitchFixture {
   config: string;
   /** replace what /iss/backup.cfg returns, to simulate a config change */
   setConfig: (text: string) => void;
+  /** firmware string shown on the /iss/sysinfo.htm status page */
+  firmware: string;
+  /** change the firmware shown on the status page, to simulate an upgrade */
+  setFirmware: (v: string) => void;
   close: () => Promise<void>;
 }
 
@@ -34,6 +38,16 @@ const LOGIN_PAGE = `<!DOCTYPE html><html><head>
 <input type="password" name="Password" id="Password">
 <input type="submit" value="Sign in">
 </form></body></html>`;
+
+const sysinfoPage = (firmware: string) => `<!DOCTYPE html><html><head><title>System Information</title></head>
+<body><table>
+<tr><td>Model Name</td><td>AT-GS950/16PS</td></tr>
+<tr><td>MAC Address</td><td>00:1A:EB:12:34:56</td></tr>
+<tr><td>Serial Number</td><td>A12345G229900001</td></tr>
+<tr><td>Runtime Image Version</td><td>${firmware}</td></tr>
+<tr><td>Boot Loader Version</td><td>1.0.0.6</td></tr>
+<tr><td>System Up Time</td><td>14 days 03:22:41</td></tr>
+</table></body></html>`;
 
 const MAIN_PAGE = `<!DOCTYPE html><html><head><title>AT-GS950</title>
 <link rel="stylesheet" href="/index_css.css">
@@ -61,6 +75,7 @@ export async function startWebSwitchFixture(opts?: {
   const pass = opts?.pass ?? 'friend';
   const SID = 'sid-' + Math.random().toString(36).slice(2);
   let config = DEFAULT_CONFIG;
+  let firmware = '2.4.4';
 
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
@@ -105,6 +120,11 @@ export async function startWebSwitchFixture(opts?: {
         res.end(config);
         return;
       }
+      if (path === '/iss/sysinfo.htm') {
+        res.writeHead(200, { 'content-type': 'text/html' });
+        res.end(sysinfoPage(firmware));
+        return;
+      }
       if (path === '/iss/app.js') {
         res.writeHead(200, { 'content-type': 'application/javascript' });
         res.end('var api="/iss/data.cgi";');
@@ -134,6 +154,12 @@ export async function startWebSwitchFixture(opts?: {
     },
     setConfig: (text: string) => {
       config = text;
+    },
+    get firmware() {
+      return firmware;
+    },
+    setFirmware: (v: string) => {
+      firmware = v;
     },
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };

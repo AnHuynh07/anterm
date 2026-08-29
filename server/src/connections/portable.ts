@@ -25,6 +25,10 @@ export interface PortableConnection {
   webUrl: string | null;
   webAuthMode: string | null;
   webUsername: string | null;
+  webConfigUrl: string | null;
+  webFactsUrl: string | null;
+  webFactsRules: string | null;
+  webFirmwareBaseline: string | null;
 }
 
 const FIELDS: (keyof PortableConnection)[] = [
@@ -45,15 +49,41 @@ const FIELDS: (keyof PortableConnection)[] = [
   'webUrl',
   'webAuthMode',
   'webUsername',
+  'webConfigUrl',
+  'webFactsUrl',
+  'webFactsRules',
+  'webFirmwareBaseline',
 ];
 
-function webOf(raw: string | null): { url: string | null; authMode: string | null; username: string | null } {
-  if (!raw) return { url: null, authMode: null, username: null };
+type WebPortable = Pick<
+  PortableConnection,
+  'webUrl' | 'webAuthMode' | 'webUsername' | 'webConfigUrl' | 'webFactsUrl' | 'webFactsRules' | 'webFirmwareBaseline'
+>;
+
+function webOf(raw: string | null): Omit<WebPortable, never> {
+  const empty: WebPortable = {
+    webUrl: null,
+    webAuthMode: null,
+    webUsername: null,
+    webConfigUrl: null,
+    webFactsUrl: null,
+    webFactsRules: null,
+    webFirmwareBaseline: null,
+  };
+  if (!raw) return empty;
   try {
-    const s = JSON.parse(raw) as { url?: string; authMode?: string; username?: string };
-    return { url: s.url ?? null, authMode: s.authMode ?? null, username: s.username ?? null };
+    const s = JSON.parse(raw) as Record<string, string | null | undefined>;
+    return {
+      webUrl: s.url ?? null,
+      webAuthMode: s.authMode ?? null,
+      webUsername: s.username ?? null,
+      webConfigUrl: s.configUrl ?? null,
+      webFactsUrl: s.factsUrl ?? null,
+      webFactsRules: s.factsRules ?? null,
+      webFirmwareBaseline: s.firmwareBaseline ?? null,
+    };
   } catch {
-    return { url: null, authMode: null, username: null };
+    return empty;
   }
 }
 
@@ -74,9 +104,7 @@ export function toPortable(c: Connection, credName: string | null): PortableConn
     setupCommands: c.setupCommands ?? null,
     initCommand: c.initCommand ?? null,
     runbook: c.runbook ?? null,
-    webUrl: w.url,
-    webAuthMode: w.authMode,
-    webUsername: w.username,
+    ...w,
   };
 }
 
@@ -155,6 +183,10 @@ export function parseImport(format: 'json' | 'csv', data: string): PortableConne
       webUrl: opt(r.webUrl),
       webAuthMode: opt(r.webAuthMode),
       webUsername: opt(r.webUsername),
+      webConfigUrl: opt(r.webConfigUrl),
+      webFactsUrl: opt(r.webFactsUrl),
+      webFactsRules: opt(r.webFactsRules),
+      webFirmwareBaseline: opt(r.webFirmwareBaseline),
     };
   });
 }
@@ -189,6 +221,10 @@ export function toConnectionInput(
             authMode:
               p.webAuthMode === 'basic' || p.webAuthMode === 'none' ? p.webAuthMode : 'form',
             username: p.webUsername,
+            configUrl: p.webConfigUrl,
+            factsUrl: p.webFactsUrl,
+            factsRules: p.webFactsRules,
+            firmwareBaseline: p.webFirmwareBaseline,
             // password is never in the portable format — re-enter after import
           }
         : null,
