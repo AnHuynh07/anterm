@@ -217,15 +217,7 @@ try {
     npm run build 2>&1 | Out-Host
     if ($LASTEXITCODE -ne 0) { Die "Build failed - see the output above." }
     Ok "build complete"
-
-    $bat = Join-Path $Path 'start-anterm.bat'
-    Set-Content -Path $bat -Encoding ascii -Value @(
-      '@echo off',
-      'cd /d "%~dp0"',
-      'node server\dist\index.js',
-      'pause'
-    )
-    Ok "created start-anterm.bat"
+    # start-anterm.bat ships in the repo (self-healing, loads .env)
   }
 
   # --- 7. Summary ---

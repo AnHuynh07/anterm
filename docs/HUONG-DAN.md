@@ -33,7 +33,17 @@ Hoặc tải file ZIP từ GitHub (nút **Code → Download ZIP**) rồi giải 
 
 ---
 
-## 2b. Windows — script cài tự động
+## 2b. Windows — cách đơn giản nhất
+
+Sau khi có thư mục `anterm` (clone hoặc tải ZIP): **double-click `start-anterm.bat`** ở thư mục gốc.
+Nó tự: `npm install` (nếu thiếu) → build native module → `npm run build` → chạy server, đọc `.env`.
+Mở `http://localhost:3000`. `start-anterm.bat` chạy bằng `cmd.exe` nên **không dính Execution Policy**.
+
+> Cần file `.env` với `ANTERM_APP_SECRET` + `ADMIN_USER` + `ADMIN_PASSWORD` — script `install-windows.ps1`
+> tạo sẵn, hoặc tự tạo (xem mục 4). Chạy từ dòng lệnh: mở **Command Prompt** (`cmd`), `cd` vào thư mục,
+> gõ `start-anterm.bat`.
+
+## 2c. Windows — script cài đầy đủ (PowerShell)
 
 Mở **PowerShell** (người dùng thường, không cần admin).
 
