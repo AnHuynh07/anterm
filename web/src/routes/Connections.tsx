@@ -306,12 +306,12 @@ export function ConnectionsPage() {
                           Open
                         </button>
                       )}
-                      {c.canOpen !== false && (
+                      {c.canOpen !== false && c.protocol === 'ssh' && (
                         <button className="btn ghost sm" disabled={test.isPending} onClick={() => test.mutate(c.id)}>
                           Test
                         </button>
                       )}
-                      {c.canOpen !== false && (
+                      {c.canOpen !== false && (c.protocol !== 'http' || Boolean(c.web?.configUrl)) && (
                         <button className="btn ghost sm" title="Config snapshots &amp; diff" onClick={() => setConfigFor(c)}>
                           Config
                         </button>
@@ -407,6 +407,7 @@ function toBody(value: ConnectionFormValue) {
           authMode: value.webAuthMode,
           username: value.webUsername.trim() || null,
           insecureTls: value.webInsecureTls,
+          configUrl: value.webConfigUrl.trim() || null,
           ...(value.webPassword.length ? { password: value.webPassword } : {}),
         }
       : null;

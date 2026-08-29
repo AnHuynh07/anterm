@@ -33,6 +33,7 @@ import { ReachabilityMonitor } from './health/monitor.js';
 import { buildApp } from './http/app.js';
 import { attachTerminalWs, LiveRegistry } from './ws/terminal.js';
 import { WebProxyRegistry } from './web/proxy.js';
+import { WebConfigScheduler } from './web/configScheduler.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -74,6 +75,9 @@ async function main(): Promise<void> {
     webProxy,
   };
 
+  const webConfig = new WebConfigScheduler(ctx);
+  webConfig.start();
+
   const app = await buildApp(ctx);
   const detachWs = attachTerminalWs(app.server, ctx);
 
@@ -110,6 +114,7 @@ async function main(): Promise<void> {
     clearInterval(sweep);
     clearInterval(retentionTimer);
     reachability.stop();
+    webConfig.stop();
     detachWs();
     await app.close();
     dbHandle.close();

@@ -72,6 +72,7 @@ export interface WebSettings {
   loginPath: string | null;
   userField: string | null;
   passField: string | null;
+  configUrl: string | null;
 }
 
 export interface Connection {

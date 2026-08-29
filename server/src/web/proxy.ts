@@ -1,111 +1,23 @@
 import http from 'node:http';
-import https from 'node:https';
 import { Buffer } from 'node:buffer';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../context.js';
 import type { AnyFastify } from '../http/types.js';
 import { auditActor, requireAuth } from '../http/app.js';
-import { ConnectionRepo, type ResolvedWebTarget } from '../connections/repo.js';
+import { ConnectionRepo } from '../connections/repo.js';
 import { ShareRepo } from '../connections/shares.js';
 import { connAccess } from '../access.js';
+import {
+  MAX_BODY,
+  MAX_LOGIN_ATTEMPTS,
+  authHeaders,
+  captureCookies,
+  formLogin,
+  rawRequest,
+  type RawResponse,
+} from './session.js';
 
-const SESSION_TTL_MS = 30 * 60_000;
-const MAX_LOGIN_ATTEMPTS = 2;
-const MAX_BODY = 60 * 1024 * 1024;
-
-interface ProxySession {
-  /** switch cookie jar: name -> value */
-  cookies: Map<string, string>;
-  /** where the switch redirected us after a successful login */
-  landingPath: string | null;
-  loginAttempts: number;
-  lastUsed: number;
-}
-
-/** Process-wide table of per-(user, connection) proxy sessions to web devices. */
-export class WebProxyRegistry {
-  private map = new Map<string, ProxySession>();
-
-  private sweep(): void {
-    const cut = Date.now() - SESSION_TTL_MS;
-    for (const [k, s] of this.map) if (s.lastUsed < cut) this.map.delete(k);
-  }
-  get(userId: string, connId: string): ProxySession {
-    this.sweep();
-    const key = `${userId}:${connId}`;
-    let s = this.map.get(key);
-    if (!s) {
-      s = { cookies: new Map(), landingPath: null, loginAttempts: 0, lastUsed: Date.now() };
-      this.map.set(key, s);
-    }
-    s.lastUsed = Date.now();
-    return s;
-  }
-  reset(userId: string, connId: string): void {
-    this.map.delete(`${userId}:${connId}`);
-  }
-}
-
-interface RawResponse {
-  status: number;
-  headers: http.IncomingHttpHeaders;
-  body: Buffer;
-}
-
-function rawRequest(opts: {
-  url: string;
-  method: string;
-  headers: http.OutgoingHttpHeaders;
-  body?: Buffer;
-  insecureTls: boolean;
-}): Promise<RawResponse> {
-  return new Promise((resolve, reject) => {
-    let u: URL;
-    try {
-      u = new URL(opts.url);
-    } catch {
-      reject(new Error(`bad upstream url: ${opts.url}`));
-      return;
-    }
-    const mod = u.protocol === 'https:' ? https : http;
-    const req = mod.request(
-      u,
-      {
-        method: opts.method,
-        headers: opts.headers,
-        timeout: 15_000,
-        ...(u.protocol === 'https:' && opts.insecureTls ? { rejectUnauthorized: false } : {}),
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        let n = 0;
-        res.on('data', (c: Buffer) => {
-          n += c.length;
-          if (n <= MAX_BODY) chunks.push(c);
-        });
-        res.on('end', () => resolve({ status: res.statusCode ?? 502, headers: res.headers, body: Buffer.concat(chunks) }));
-      },
-    );
-    req.on('error', reject);
-    req.on('timeout', () => req.destroy(new Error('upstream timed out')));
-    if (opts.body?.length) req.write(opts.body);
-    req.end();
-  });
-}
-
-function captureCookies(sess: ProxySession, setCookie: string | string[] | undefined): void {
-  if (!setCookie) return;
-  for (const line of Array.isArray(setCookie) ? setCookie : [setCookie]) {
-    const first = line.split(';')[0] ?? '';
-    const eq = first.indexOf('=');
-    if (eq > 0) sess.cookies.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());
-  }
-}
-
-function cookieHeader(sess: ProxySession): string | undefined {
-  if (sess.cookies.size === 0) return undefined;
-  return [...sess.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
-}
+export { WebProxyRegistry } from './session.js';
 
 /** Absolute or root-relative URL on the same host -> proxy-relative path. */
 function toProxyPath(loc: string, base: URL, prefix: string): string {
@@ -144,43 +56,6 @@ function rewriteHtml(html: string, prefix: string): string {
 
 function rewriteCss(css: string, prefix: string): string {
   return css.replace(CSS_URL_RE, (_m, q: string) => `url(${q}${prefix}`);
-}
-
-async function formLogin(web: ResolvedWebTarget, sess: ProxySession): Promise<void> {
-  sess.loginAttempts += 1;
-  const body = Buffer.from(
-    new URLSearchParams({
-      [web.userField]: web.username ?? '',
-      [web.passField]: web.password ?? '',
-    }).toString(),
-  );
-  const res = await rawRequest({
-    url: new URL(web.loginPath, web.url).toString(),
-    method: 'POST',
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-      'content-length': body.length,
-      'accept-encoding': 'identity',
-      cookie: cookieHeader(sess) ?? '',
-      'user-agent': 'AnTerm-web-proxy',
-    },
-    body,
-    insecureTls: web.insecureTls,
-  });
-  captureCookies(sess, res.headers['set-cookie']);
-  const loc = res.headers['location'];
-  if (loc) {
-    try {
-      sess.landingPath = new URL(loc, web.url).pathname.replace(/^\//, '');
-    } catch {
-      /* ignore */
-    }
-  }
-  // heuristic: redirect, or a 200 that is no longer the login form
-  const looksLikeLogin = res.status === 200 && /name=["'](Login|Password|username|passwd)["']/i.test(res.body.toString('latin1'));
-  if ((res.status >= 400 || looksLikeLogin) && !cookieHeader(sess)) {
-    throw new Error('the device rejected the credentials');
-  }
 }
 
 export function registerWebProxy(app: AnyFastify, ctx: AppContext): void {
@@ -242,11 +117,7 @@ export function registerWebProxy(app: AnyFastify, ctx: AppContext): void {
         }
         headers['host'] = base.host;
         headers['accept-encoding'] = 'identity';
-        const ck = cookieHeader(sess);
-        if (ck) headers['cookie'] = ck;
-        if (web.authMode === 'basic' && web.username != null) {
-          headers['authorization'] = 'Basic ' + Buffer.from(`${web.username}:${web.password ?? ''}`).toString('base64');
-        }
+        Object.assign(headers, authHeaders(web, sess));
         const rawBody = req.body instanceof Buffer ? req.body : undefined;
         if (rawBody?.length) headers['content-length'] = rawBody.length;
 

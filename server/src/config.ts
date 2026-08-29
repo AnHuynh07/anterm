@@ -72,6 +72,9 @@ const schema = z.object({
   // reverse-proxy web-managed devices (switches with only a web GUI); the proxy
   // signs the user in and frames the device UI inside AnTerm
   allowWebProxy: bool.default(true),
+  // periodically snapshot every web device that has a config-backup URL; a change
+  // from the previous snapshot fires the reachability webhook as a drift alert
+  webConfigSnapshotMin: z.coerce.number().nonnegative().default(0),
 
   // reachability alerting: fire only after N consecutive same-status probes (flap guard)
   alertAfterFailures: z.coerce.number().int().min(1).max(10).default(2),
@@ -143,6 +146,10 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
       type: 'boolean',
       describe: 'Reverse-proxy + auto-login web-managed devices in an iframe (default true)',
     })
+    .option('web-config-snapshot-min', {
+      type: 'number',
+      describe: 'Snapshot each web device with a config URL every N minutes; alert on drift (0 = off)',
+    })
     .option('alert-after-failures', {
       type: 'number',
       describe: 'Fire a reachability alert only after N consecutive same-status probes (default 2)',
@@ -187,6 +194,7 @@ export function loadConfig(argv = hideBin(process.argv)): AppConfig {
     allowSecretExport: parsed.allowSecretExport ?? fileCfg.allowSecretExport,
     allowTelnet: parsed.allowTelnet ?? fileCfg.allowTelnet,
     allowWebProxy: parsed.allowWebProxy ?? fileCfg.allowWebProxy,
+    webConfigSnapshotMin: parsed.webConfigSnapshotMin ?? fileCfg.webConfigSnapshotMin,
     alertAfterFailures: parsed.alertAfterFailures ?? fileCfg.alertAfterFailures,
     ssh: {
       host: parsed.sshHost ?? fileSsh.host,

@@ -6,8 +6,24 @@ export interface WebSwitchFixture {
   url: string;
   user: string;
   pass: string;
+  /** current text served at /iss/backup.cfg (the config-backup URL) */
+  config: string;
+  /** replace what /iss/backup.cfg returns, to simulate a config change */
+  setConfig: (text: string) => void;
   close: () => Promise<void>;
 }
+
+const DEFAULT_CONFIG = `! AT-GS950 running-config
+hostname gs950
+!
+vlan 1
+ name default
+!
+interface port1
+ switchport mode access
+!
+end
+`;
 
 const LOGIN_PAGE = `<!DOCTYPE html><html><head>
 <link rel="stylesheet" href="/index_css.css">
@@ -35,10 +51,16 @@ const MAIN_PAGE = `<!DOCTYPE html><html><head><title>AT-GS950</title>
  * that 401 without it. HTML carries absolute paths + a frameset to exercise the
  * proxy's rewriting.
  */
-export async function startWebSwitchFixture(opts?: { user?: string; pass?: string }): Promise<WebSwitchFixture> {
+export async function startWebSwitchFixture(opts?: {
+  user?: string;
+  pass?: string;
+  /** bind a fixed port for manual testing; defaults to an ephemeral one */
+  port?: number;
+}): Promise<WebSwitchFixture> {
   const user = opts?.user ?? 'manager';
   const pass = opts?.pass ?? 'friend';
   const SID = 'sid-' + Math.random().toString(36).slice(2);
+  let config = DEFAULT_CONFIG;
 
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
@@ -78,6 +100,11 @@ export async function startWebSwitchFixture(opts?: { user?: string; pass?: strin
         res.end(Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])); // "GIF89a"
         return;
       }
+      if (path === '/iss/backup.cfg') {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end(config);
+        return;
+      }
       if (path === '/iss/app.js') {
         res.writeHead(200, { 'content-type': 'application/javascript' });
         res.end('var api="/iss/data.cgi";');
@@ -93,7 +120,7 @@ export async function startWebSwitchFixture(opts?: { user?: string; pass?: strin
   });
 
   const port: number = await new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port));
+    server.listen(opts?.port ?? 0, '127.0.0.1', () => resolve((server.address() as { port: number }).port));
   });
 
   return {
@@ -102,6 +129,12 @@ export async function startWebSwitchFixture(opts?: { user?: string; pass?: strin
     url: `http://127.0.0.1:${port}/`,
     user,
     pass,
+    get config() {
+      return config;
+    },
+    setConfig: (text: string) => {
+      config = text;
+    },
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

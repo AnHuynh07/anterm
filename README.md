@@ -46,13 +46,17 @@ Browser (React + xterm.js)  ──HTTPS  /api/*──▶  REST: auth, connection
   (e.g. Allied Telesis WebSmart): AnTerm reverse-proxies the device UI, signs you in with the
   stored credentials (form or HTTP Basic), and frames it inside AnTerm — one click, already
   logged in. Absolute paths / redirects / cookies rewritten; self-signed HTTPS accepted;
-  credentials encrypted at rest and never sent to the browser
+  credentials encrypted at rest and never sent to the browser. Give it a **config backup URL**
+  and its config history + drift alerts work exactly like an SSH device
 - **Jump host / ProxyJump** — reach a device by tunnelling through another saved connection
   (chain up to 4 bastions); the bastion's own credentials and host-key trust are reused
 - **Bulk actions** — select many devices and run one command across all of them in parallel,
   with per-device output and a combined `.txt` download
 - **Config-change capture & diff** — snapshot a device's running config on demand or
-  automatically after a `write mem`; browse the timeline and diff any two versions
+  automatically after a `write mem`; browse the timeline and diff any two versions. For
+  web-managed devices the "config" is whatever their backup URL returns. With
+  `--web-config-snapshot-min N` AnTerm re-downloads every web device's config every N minutes
+  and fires a drift alert (same webhook as reachability) when it changes
 - **Session sharing** — hand a colleague a link to watch your live terminal read-only
 - **Split / grid view** — watch 2–4 sessions side by side; every tab stays connected so
   Broadcast still types to all of them at once
@@ -160,6 +164,7 @@ for the full list. Common options:
 | `--allow-secret-export` | `ANTERM_ALLOW_SECRET_EXPORT` | `true` | Let admins export the vault with decrypted secrets + a DB backup |
 | `--allow-telnet` | `ANTERM_ALLOW_TELNET` | `false` | Allow connections that use plaintext Telnet |
 | `--allow-web-proxy` | `ANTERM_ALLOW_WEB_PROXY` | `true` | Reverse-proxy + auto-login web-managed devices in an iframe |
+| `--web-config-snapshot-min` | `ANTERM_WEB_CONFIG_SNAPSHOT_MIN` | `0` | Snapshot each web device that has a config backup URL every N min; alert on drift (0 = off) |
 | `--record` / `--no-record` | `ANTERM_RECORD` | `true` | Record session I/O + command log |
 | `--record-dir` | `ANTERM_RECORD_DIR` | `<db dir>/recordings` | Where `.cast` files are stored |
 | `--record-retention-days` | `ANTERM_RECORD_RETENTION_DAYS` | `30` | Delete recordings + old sessions after N days (0 = keep) |

@@ -13,6 +13,7 @@ import { SshSession } from '../../ssh/client.js';
 import { runCommand, runFanout } from '../../ssh/runner.js';
 import { SnapshotRepo, toSnapshotDto } from '../../config/snapshots.js';
 import { configDiff, diffStats } from '../../config/diff.js';
+import { fetchWebConfig } from '../../web/configFetch.js';
 import { auditActor, requireAuth, requireWriter } from '../app.js';
 
 const webSettingsBody = z.object({
@@ -24,6 +25,7 @@ const webSettingsBody = z.object({
   loginPath: z.string().max(512).nullish(),
   userField: z.string().max(64).nullish(),
   passField: z.string().max(64).nullish(),
+  configUrl: z.string().max(2048).nullish(),
 });
 
 const upsertBody = z.object({
@@ -500,6 +502,22 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     if (!loaded.access.canOpen) return reply.code(403).send({ error: 'you do not have access to this connection' });
     const conn = loaded.conn;
     if (conn.jumpConnectionId) return reply.code(400).send({ error: 'config snapshots via a jump host are not supported yet' });
+
+    if (conn.protocol === 'http') {
+      try {
+        const { content, binary } = await fetchWebConfig(ctx, conn);
+        const { snapshot, changed } = await snaps.create({ connectionId: conn.id, userId: user.id, reason: 'manual', content });
+        ctx.activity.record({
+          actor: auditActor(req),
+          action: 'connection.config_snapshot',
+          target: conn.name,
+          detail: { reason: 'manual', changed, lines: snapshot.lines, binary },
+        });
+        return { id: snapshot.id, capturedAt: snapshot.capturedAt, lines: snapshot.lines, changed, binary };
+      } catch (err) {
+        return reply.code(502).send({ error: (err as Error).message });
+      }
+    }
     if (conn.protocol === 'telnet') return reply.code(400).send({ error: 'config snapshots are SSH-only' });
 
     const known = await ctx.db.query.hostKeys.findFirst({
@@ -549,9 +567,14 @@ export function registerConnectionRoutes(app: AnyFastify, ctx: AppContext): void
     if (!loaded) return reply.code(404).send({ error: 'connection not found' });
     const rows = await snaps.list(id, 200);
     const names = await usernamesByIds(rows.map((r) => r.userId).filter((u): u is string => Boolean(u)));
+    const c = loaded.conn;
     return {
       snapshots: rows.map((s) => ({ ...toSnapshotDto(s), user: s.userId ? (names.get(s.userId) ?? null) : null })),
-      configCommand: loaded.conn.configCommand || 'show running-config',
+      configCommand:
+        c.protocol === 'http'
+          ? (repo.resolveWebTarget(c)?.configUrl ?? null)
+          : c.configCommand || 'show running-config',
+      protocol: c.protocol,
     };
   });
 

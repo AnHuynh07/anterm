@@ -23,6 +23,8 @@ export interface WebSettingsInput {
   loginPath?: string | null;
   userField?: string | null;
   passField?: string | null;
+  /** where the device's config-backup button downloads from */
+  configUrl?: string | null;
 }
 
 /** Web-device config as stored (password encrypted). */
@@ -35,6 +37,7 @@ export interface WebSettingsStored {
   loginPath: string | null;
   userField: string | null;
   passField: string | null;
+  configUrl: string | null;
 }
 
 /** Web-device config as returned to the client (no secret). */
@@ -47,6 +50,7 @@ export interface WebSettingsDto {
   loginPath: string | null;
   userField: string | null;
   passField: string | null;
+  configUrl: string | null;
 }
 
 export interface ConnectionInput {
@@ -113,6 +117,7 @@ function parseWebStored(raw: string | null): WebSettingsStored | null {
       loginPath: s.loginPath ?? null,
       userField: s.userField ?? null,
       passField: s.passField ?? null,
+      configUrl: s.configUrl ?? null,
     };
   } catch {
     return null;
@@ -131,6 +136,7 @@ function webToDto(raw: string | null): WebSettingsDto | null {
     loginPath: s.loginPath,
     userField: s.userField,
     passField: s.passField,
+    configUrl: s.configUrl,
   };
 }
 
@@ -148,6 +154,7 @@ export interface ResolvedWebTarget {
   loginPath: string;
   userField: string;
   passField: string;
+  configUrl: string | null;
 }
 
 /** Shape returned to the client — never includes decrypted secrets. */
@@ -296,6 +303,7 @@ export class ConnectionRepo {
       loginPath: s.loginPath?.trim() || null,
       userField: s.userField?.trim() || null,
       passField: s.passField?.trim() || null,
+      configUrl: s.configUrl?.trim() || null,
     };
     return JSON.stringify(stored);
   }
@@ -313,6 +321,7 @@ export class ConnectionRepo {
       loginPath: s.loginPath || '/iss/redirect.html',
       userField: s.userField || 'Login',
       passField: s.passField || 'Password',
+      configUrl: s.configUrl || null,
     };
   }
 

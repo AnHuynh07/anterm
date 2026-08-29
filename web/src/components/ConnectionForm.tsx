@@ -13,6 +13,7 @@ export interface ConnectionFormValue {
   webUsername: string;
   webPassword: string;
   webInsecureTls: boolean;
+  webConfigUrl: string;
   sshUsername: string;
   credentialId: string;
   jumpConnectionId: string;
@@ -70,6 +71,7 @@ export function ConnectionForm({
     webUsername: initial?.web?.username ?? '',
     webPassword: '',
     webInsecureTls: initial?.web?.insecureTls ?? false,
+    webConfigUrl: initial?.web?.configUrl ?? '',
     sshUsername: initial?.sshUsername ?? '',
     credentialId: initial?.credentialId ?? '',
     jumpConnectionId: initial?.jumpConnectionId ?? '',
@@ -277,6 +279,14 @@ export function ConnectionForm({
               onChange={(e) => set('webInsecureTls', e.target.checked)}
             />
             Accept a self-signed HTTPS certificate
+          </label>
+          <label>
+            Config backup URL <span className="muted small">— optional; enables Config history + drift alerts</span>
+            <input
+              value={v.webConfigUrl}
+              onChange={(e) => set('webConfigUrl', e.target.value)}
+              placeholder="/iss/backup.cfg  (find it via the device's Backup button + browser devtools)"
+            />
           </label>
           <p className="muted small">
             Login form fields default to Allied Telesis (<code>/iss/redirect.html</code>, <code>Login</code> /{' '}

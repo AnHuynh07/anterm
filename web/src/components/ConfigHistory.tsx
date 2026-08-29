@@ -15,8 +15,11 @@ export function ConfigHistory({ connection, onClose }: { connection: Connection;
   const { data } = useQuery({
     queryKey: ['config-snapshots', connection.id],
     queryFn: () =>
-      api<{ snapshots: ConfigSnapshot[]; configCommand: string }>(`/connections/${connection.id}/config-snapshots`),
+      api<{ snapshots: ConfigSnapshot[]; configCommand: string | null; protocol?: string }>(
+        `/connections/${connection.id}/config-snapshots`,
+      ),
   });
+  const isWeb = connection.protocol === 'http';
   const snapshot = useMutation({
     mutationFn: () =>
       api<{ changed: boolean; lines: number }>(`/connections/${connection.id}/config-snapshot`, { method: 'POST' }),
@@ -52,8 +55,18 @@ export function ConfigHistory({ connection, onClose }: { connection: Connection;
           </button>
         </div>
         <p className="muted small">
-          Runs <code>{data?.configCommand ?? 'show running-config'}</code> on the device. AnTerm also snapshots
-          automatically when a session writes the config (<code>write mem</code>, <code>copy run start</code>).
+          {isWeb ? (
+            <>
+              Downloads <code>{data?.configCommand ?? 'the config backup URL'}</code> through the device's logged-in
+              session. With <code>--web-config-snapshot-min</code> set, AnTerm snapshots on a schedule and alerts on
+              drift.
+            </>
+          ) : (
+            <>
+              Runs <code>{data?.configCommand ?? 'show running-config'}</code> on the device. AnTerm also snapshots
+              automatically when a session writes the config (<code>write mem</code>, <code>copy run start</code>).
+            </>
+          )}
         </p>
         {err && <div className="alert error">{err}</div>}
         {snapshot.data && (

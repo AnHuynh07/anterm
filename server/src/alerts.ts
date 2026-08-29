@@ -13,26 +13,49 @@ function payload(t: Pick<ReachTransition, 'name' | 'host' | 'port' | 'status' | 
   return JSON.stringify({ text, anterm: t });
 }
 
+export interface ConfigDrift {
+  name: string;
+  target: string;
+  added: number;
+  removed: number;
+  ts: number;
+}
+
 export class Alerter {
   constructor(
     private readonly settings: AppSettingsStore,
     private readonly log: Logger,
   ) {}
 
-  async dispatch(t: ReachTransition): Promise<void> {
+  private async post(build: () => string, label: string): Promise<void> {
     const cfg = await this.settings.getJson<AlertConfig>(ALERTS_KEY);
     if (!cfg?.enabled || !cfg.webhookUrl) return;
     try {
       const res = await fetch(cfg.webhookUrl, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: payload(t),
+        body: build(),
         signal: AbortSignal.timeout(8000),
       });
-      if (!res.ok) this.log.warn({ status: res.status, name: t.name }, 'alert webhook returned non-2xx');
+      if (!res.ok) this.log.warn({ status: res.status, label }, 'alert webhook returned non-2xx');
     } catch (err) {
-      this.log.warn({ err: (err as Error).message }, 'alert webhook failed');
+      this.log.warn({ err: (err as Error).message, label }, 'alert webhook failed');
     }
+  }
+
+  async dispatch(t: ReachTransition): Promise<void> {
+    await this.post(() => payload(t), t.name);
+  }
+
+  /** A scheduled config snapshot came back different from the last one. */
+  async dispatchConfigDrift(d: ConfigDrift): Promise<void> {
+    const build = () => {
+      const text =
+        `📝 *${d.name}* (${d.target}) config changed` +
+        (d.added || d.removed ? `  (+${d.added} / −${d.removed} lines)` : '');
+      return JSON.stringify({ text, anterm: { kind: 'config-drift', ...d } });
+    };
+    await this.post(build, d.name);
   }
 
   async test(webhookUrl: string): Promise<{ ok: boolean; detail: string }> {
