@@ -82,6 +82,13 @@ export async function startWebSwitchFixture(opts?: {
     const path = url.pathname;
     const authed = (req.headers.cookie ?? '').includes(`SID=${SID}`);
 
+    // the real GS950's embedded server rejects HEAD/OPTIONS/PUT/... with 405
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      res.writeHead(405, { 'content-type': 'text/html' });
+      res.end('<html><body>Method Not Allowed</body></html>');
+      return;
+    }
+
     if (req.method === 'POST' && path === '/iss/redirect.html') {
       let body = '';
       req.on('data', (c) => (body += c));

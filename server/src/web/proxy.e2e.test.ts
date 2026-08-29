@@ -151,6 +151,40 @@ describe('web-device reverse proxy', () => {
     expect(res.headers.get('location')).toBe(`/webproxy/${connId}/iss/data.cgi?x=1`);
   });
 
+  it('still auto-logs-in when authMode is "none" but credentials are stored (misconfig)', async () => {
+    const ctx2 = await ctxWith(true);
+    const u = await createUser(ctx2.db, { username: 'm', password: 'm-password', role: 'operator' });
+    const id = (
+      await new ConnectionRepo(ctx2.db, SECRET).create(u.id, {
+        name: 'misconfig',
+        host: sw.host,
+        port: sw.port,
+        protocol: 'http',
+        sshUsername: '',
+        authType: 'password',
+        settings: { url: sw.url, authMode: 'none', username: sw.user, password: sw.pass },
+      })
+    ).id;
+    const app2 = await buildApp(ctx2);
+    await app2.listen({ host: '127.0.0.1', port: 0 });
+    const b2 = `127.0.0.1:${(app2.server.address() as { port: number }).port}`;
+    const ck = (await fetch(`http://${b2}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'm', password: 'm-password' }),
+    }).then((r) => r.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ')));
+    const res = await fetch(`http://${b2}/webproxy/${id}/iss/main.html`, { headers: { cookie: ck } });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('AT-GS950'); // got the authed page, not the login form
+    await app2.close();
+  });
+
+  it('answers a HEAD by forwarding a GET (the device 405s HEAD) and drops the body', async () => {
+    const res = await fetch(`http://${base}/webproxy/${connId}/`, { method: 'HEAD', headers: { cookie: ownerCookie } });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('');
+  });
+
   it('refuses the proxy when --allow-web-proxy is off', async () => {
     const ctx2 = await ctxWith(false);
     const u = await createUser(ctx2.db, { username: 'z', password: 'z-password' });

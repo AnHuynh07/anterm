@@ -11,6 +11,7 @@ import {
   MAX_BODY,
   MAX_LOGIN_ATTEMPTS,
   authHeaders,
+  canFormLogin,
   captureCookies,
   formLogin,
   rawRequest,
@@ -103,6 +104,12 @@ export function registerWebProxy(app: AnyFastify, ctx: AppContext): void {
       const prefix = `${ctx.config.base === '/' ? '' : ctx.config.base}/webproxy/${id}/`;
       const sess = registry.get(user.id, id);
 
+      const formLoginOk = canFormLogin(web);
+
+      // Picky embedded servers (e.g. AT-GS950) answer HEAD with 405 — ask for GET
+      // and drop the body ourselves.
+      const method = req.method === 'HEAD' ? 'GET' : req.method;
+
       const doForward = async (): Promise<RawResponse> => {
         const rootTarget = rest === '' ? (sess.landingPath ?? '') : rest;
         const upstream = new URL(rootTarget + qs, base).toString();
@@ -117,27 +124,51 @@ export function registerWebProxy(app: AnyFastify, ctx: AppContext): void {
         }
         headers['host'] = base.host;
         headers['accept-encoding'] = 'identity';
+        // Rewrite Referer/Origin to the device's own site rather than dropping them —
+        // some embedded UIs reject an action POST that arrives with neither.
+        const refMatch = String(req.headers['referer'] ?? '').match(/\/webproxy\/[^/]+\/(.*)$/);
+        headers['referer'] = refMatch ? new URL(refMatch[1] ?? '', base).toString() : base.origin + '/';
+        headers['origin'] = base.origin;
         Object.assign(headers, authHeaders(web, sess));
         const rawBody = req.body instanceof Buffer ? req.body : undefined;
         if (rawBody?.length) headers['content-length'] = rawBody.length;
 
-        return rawRequest({ url: upstream, method: req.method, headers, body: rawBody, insecureTls: web.insecureTls });
+        return rawRequest({ url: upstream, method, headers, body: rawBody, insecureTls: web.insecureTls });
+      };
+
+      // the device bounced us to its login screen (some answer 200/403, not 401)
+      const needsLogin = (res: RawResponse): boolean => {
+        if (res.status === 401 || res.status === 403) return true;
+        if (res.status !== 200) return false;
+        const ct = String(res.headers['content-type'] ?? '');
+        return /text\/html/i.test(ct) && /name=["'](Login|Password|username|passwd)["']/i.test(res.body.toString('latin1'));
       };
 
       try {
-        if (web.authMode === 'form' && sess.cookies.size === 0 && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
+        if (formLoginOk && sess.cookies.size === 0 && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
           await formLogin(web, sess);
           ctx.activity.record({ actor: auditActor(req), action: 'webdevice.open', target: web.url });
         }
 
         let res = await doForward();
-        if (res.status === 401 && web.authMode === 'form' && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
+        if (formLoginOk && needsLogin(res) && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
           sess.cookies.clear();
           await formLogin(web, sess);
           res = await doForward();
         }
         // login succeeded once we get real content back
         if (res.status < 400) sess.loginAttempts = 0;
+
+        if (req.method === 'HEAD') res = { ...res, body: Buffer.alloc(0) };
+
+        if (res.status >= 400) {
+          const target = new URL((rest === '' ? (sess.landingPath ?? '') : rest) + qs, base).toString();
+          ctx.log.info(
+            { device: web.url, method: req.method, target, status: res.status, authMode: web.authMode },
+            'web proxy: device returned an error',
+          );
+          reply.header('x-anterm-upstream', `${res.status} ${req.method} ${target}`);
+        }
 
         // ---- rewrite the response ----
         const ct = String(res.headers['content-type'] ?? '');

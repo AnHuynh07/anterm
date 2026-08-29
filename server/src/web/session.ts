@@ -152,9 +152,19 @@ export function authHeaders(web: ResolvedWebTarget, sess: ProxySession): http.Ou
   return h;
 }
 
+/**
+ * Whether we should try a form login for this device. `form` obviously; also
+ * `none` when a username + password are stored — that combination almost always
+ * means the operator picked the wrong auth mode for a device that does have a
+ * login form.
+ */
+export function canFormLogin(web: ResolvedWebTarget): boolean {
+  return web.authMode === 'form' || (web.authMode === 'none' && Boolean(web.username) && Boolean(web.password));
+}
+
 /** Make sure the session can talk to the device (form-login if needed). */
 export async function ensureAuthed(web: ResolvedWebTarget, sess: ProxySession): Promise<void> {
-  if (web.authMode === 'form' && sess.cookies.size === 0 && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
+  if (canFormLogin(web) && sess.cookies.size === 0 && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
     await formLogin(web, sess);
   }
 }
@@ -204,7 +214,7 @@ export async function authedGet(
     });
 
   let res = await doGet();
-  if (res.status === 401 && web.authMode === 'form' && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
+  if (res.status === 401 && canFormLogin(web) && sess.loginAttempts < MAX_LOGIN_ATTEMPTS) {
     sess.cookies.clear();
     await formLogin(web, sess);
     res = await doGet();
