@@ -33,6 +33,16 @@ export function WebDevicePage() {
   const proxyBase = API_BASE.replace(/\/api$/, '');
   const src = `${proxyBase}/webproxy/${id}/`;
 
+  // Reload the page the iframe is *currently* on (same origin, so this works),
+  // not the entry URL — a switch root usually only ever shows its login screen.
+  function reloadFrame() {
+    try {
+      iframeRef.current?.contentWindow?.location.reload();
+    } catch {
+      setReloadKey((k) => k + 1); // cross-origin somehow: fall back to a full remount
+    }
+  }
+
   async function openInNewTab() {
     try {
       const w = await api<{ url: string; username: string | null; password: string | null }>(`/connections/${id}/web`);
@@ -86,7 +96,7 @@ export function WebDevicePage() {
             Runbook
           </button>
         )}
-        <button className="btn sm ghost" onClick={() => setReloadKey((k) => k + 1)}>
+        <button className="btn sm ghost" onClick={reloadFrame}>
           Reload
         </button>
         <button className="btn sm ghost" onClick={openInNewTab}>

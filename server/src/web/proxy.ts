@@ -159,6 +159,19 @@ export function registerWebProxy(app: AnyFastify, ctx: AppContext): void {
         // login succeeded once we get real content back
         if (res.status < 400) sess.loginAttempts = 0;
 
+        // Remember the last real inner page we served so a plain reload of
+        // /webproxy/:id/ lands back there — many switch roots only ever show login.
+        if (
+          req.method === 'GET' &&
+          rest !== '' &&
+          !qs &&
+          res.status === 200 &&
+          /text\/html/i.test(String(res.headers['content-type'] ?? '')) &&
+          !needsLogin(res)
+        ) {
+          sess.landingPath = rest;
+        }
+
         if (req.method === 'HEAD') res = { ...res, body: Buffer.alloc(0) };
 
         if (res.status >= 400) {

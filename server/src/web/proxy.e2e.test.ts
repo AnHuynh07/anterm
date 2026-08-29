@@ -185,6 +185,39 @@ describe('web-device reverse proxy', () => {
     expect(await res.text()).toBe('');
   });
 
+  it('a plain reload of /webproxy/:id/ lands on the last inner page, not the switch login root', async () => {
+    const ctx2 = await ctxWith(true);
+    const u = await createUser(ctx2.db, { username: 'r', password: 'r-password', role: 'operator' });
+    const id = (
+      await new ConnectionRepo(ctx2.db, SECRET).create(u.id, {
+        name: 'reloadme',
+        host: sw.host,
+        port: sw.port,
+        protocol: 'http',
+        sshUsername: '',
+        authType: 'password',
+        settings: { url: sw.url, authMode: 'form', username: sw.user, password: sw.pass },
+      })
+    ).id;
+    const app2 = await buildApp(ctx2);
+    await app2.listen({ host: '127.0.0.1', port: 0 });
+    const b2 = `127.0.0.1:${(app2.server.address() as { port: number }).port}`;
+    const ck = await fetch(`http://${b2}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'r', password: 'r-password' }),
+    }).then((r) => r.headers.getSetCookie().map((c) => c.split(';')[0]).join('; '));
+
+    // visit an inner page, then reload the entry URL
+    await fetch(`http://${b2}/webproxy/${id}/iss/vlan.html`, { headers: { cookie: ck } });
+    const reload = await fetch(`http://${b2}/webproxy/${id}/`, { headers: { cookie: ck } });
+    expect(reload.status).toBe(200);
+    const html = await reload.text();
+    expect(html).toContain('AT-GS950'); // the inner page, not the login form
+    expect(html).not.toContain('name="Password"');
+    await app2.close();
+  });
+
   it('refuses the proxy when --allow-web-proxy is off', async () => {
     const ctx2 = await ctxWith(false);
     const u = await createUser(ctx2.db, { username: 'z', password: 'z-password' });
