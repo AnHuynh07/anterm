@@ -129,7 +129,7 @@ export async function buildApp(ctx: AppContext): Promise<AnyFastify> {
   await app.register(async (scoped) => {
     await scoped.register(api, { prefix: '/api' });
     registerWebProxy(scoped, ctx);
-    await registerSpa(scoped, config.isDev);
+    await registerSpa(scoped);
   }, prefix ? { prefix } : {});
 
   return app;
@@ -163,11 +163,13 @@ export function auditActor(req: FastifyRequest): { id: string | null; name: stri
   return { id: req.authUser?.id ?? null, name: req.authUser?.username ?? null, ip: req.ip ?? null };
 }
 
-async function registerSpa(app: AnyFastify, isDev: boolean): Promise<void> {
-  // In dev the Vite server serves the SPA; only wire static hosting for prod builds.
+async function registerSpa(app: AnyFastify): Promise<void> {
+  // Serve the built SPA whenever it's present next to the server bundle
+  // (`server/dist/public`). In dev this runs from `src/` so the dir doesn't
+  // exist and Vite serves the SPA instead.
   const here = dirname(fileURLToPath(import.meta.url));
   const publicDir = join(here, '..', 'public');
-  if (isDev || !existsSync(publicDir)) return;
+  if (!existsSync(publicDir)) return;
 
   await app.register(fastifyStatic, { root: publicDir, wildcard: false });
   app.setNotFoundHandler((req, reply) => {
